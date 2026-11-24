@@ -5,7 +5,7 @@ import { dataBlock, type AssistantFlowDraft } from './assistant'
 
 const GUIDE = `
 # Foreman in brief
-Foreman is a desktop app that runs coding agents (Claude Code, Codex, Cursor, OpenCode, and chat agents such as Gemini CLI) in parallel. Each piece of work is a **workspace**: a git worktree on its own branch, with one or more **chat tabs**.
+Foreman is a desktop app that runs coding agents (Claude Code, Codex, Cursor, OpenCode, and chat agents such as Antigravity) in parallel. Each piece of work is a **workspace**: a git worktree on its own branch, with one or more **chat tabs**.
 
 ## Workspaces and chats
 - New workspace: ⌘N (Ctrl+N on Windows). Pick the repository, base branch, a new or existing branch, and the first message. A GitHub PR or issue URL in the first message starts from it.

@@ -24,7 +24,9 @@ describe('G1 · credentials probes', () => {
   it('has a probe for exactly the agents the catalog says can be checked this way', () => {
     expect(Object.keys(SIGN_IN_PROBES).sort()).toEqual([...CREDENTIAL_PROBES].sort())
     for (const id of CREDENTIAL_PROBES) expect(catalogAgent(id)?.auth.confirmed, id).toBe(true)
-    expect(canCheckSignIn(catalogAgent('gemini')!)).toBe(true)
+    expect(canCheckSignIn(catalogAgent('qwen')!)).toBe(true)
+    // agy keeps its sign-in in the OS keychain: nothing on disk to look at.
+    expect(canCheckSignIn(catalogAgent('antigravity')!)).toBe(false)
     expect(canCheckSignIn(catalogAgent('kiro')!)).toBe(true)
     expect(canCheckSignIn(catalogAgent('continue')!)).toBe(false)
     expect(canCheckSignIn(catalogAgent('kimchi')!)).toBe(false)
@@ -36,18 +38,13 @@ describe('G1 · credentials probes', () => {
     expect(await probeSignIn('aider', deps({}))).toBeNull()
   })
 
-  it('Gemini CLI: its OAuth file, with the Google account it recorded', async () => {
-    const files = {
-      '/home/me/.gemini/oauth_creds.json': JSON.stringify({ refresh_token: 'r' }),
-      '/home/me/.gemini/google_accounts.json': JSON.stringify({ active: 'me@example.com' })
-    }
-    expect(await probeSignIn('gemini', deps(files))).toEqual({ signedIn: true, account: 'me@example.com', source: '~/.gemini/oauth_creds.json' })
-    expect(await probeSignIn('gemini', deps({ '/home/me/.gemini/oauth_creds.json': JSON.stringify({ refresh_token: '' }) }))).toBeNull()
+  it('Qwen Code: its OAuth file; an empty token isn’t a sign-in', async () => {
+    expect(await probeSignIn('qwen', deps({ '/home/me/.qwen/oauth_creds.json': JSON.stringify({ refresh_token: 'r' }) }))).toEqual({ signedIn: true, source: '~/.qwen/oauth_creds.json' })
+    expect(await probeSignIn('qwen', deps({ '/home/me/.qwen/oauth_creds.json': JSON.stringify({ refresh_token: '' }) }))).toBeNull()
   })
 
-  it('Antigravity: the Google account under GEMINI_HOME', async () => {
-    const files = { '/g/google_accounts.json': JSON.stringify({ active: 'a@b.c' }) }
-    expect(await probeSignIn('antigravity', deps(files, { env: { GEMINI_HOME: '/g' } }))).toMatchObject({ account: 'a@b.c', source: '/g/google_accounts.json' })
+  it('Antigravity has no probe: its sign-in stays Unknown', async () => {
+    expect(await probeSignIn('antigravity', deps({ '/home/me/.gemini/google_accounts.json': JSON.stringify({ active: 'a@b.c' }) }))).toBeNull()
   })
 
   it('Copilot: its config, else the GitHub CLI’s account; gh not signed in says nothing', async () => {
@@ -98,8 +95,8 @@ describe('G1 · credentials probes', () => {
   })
 
   it('shows a found credential as found, with its source, and Unknown otherwise', () => {
-    const gemini = catalogAgent('gemini')!
-    expect(signInState(gemini, { mode: 'cli', providerKeys: 0, reported: { signedIn: true, account: 'a', source: '~/.gemini/oauth_creds.json' } })).toEqual({ kind: 'signed-in', account: 'a', source: '~/.gemini/oauth_creds.json' })
-    expect(signInState(gemini, { mode: 'cli', providerKeys: 0 })).toEqual({ kind: 'unknown' })
+    const qwen = catalogAgent('qwen')!
+    expect(signInState(qwen, { mode: 'cli', providerKeys: 0, reported: { signedIn: true, account: 'a', source: '~/.qwen/oauth_creds.json' } })).toEqual({ kind: 'signed-in', account: 'a', source: '~/.qwen/oauth_creds.json' })
+    expect(signInState(qwen, { mode: 'cli', providerKeys: 0 })).toEqual({ kind: 'unknown' })
   })
 })

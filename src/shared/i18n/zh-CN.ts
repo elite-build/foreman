@@ -3731,6 +3731,8 @@ export const zhCN: Catalogue = {
   'chat.notice.openSettings': '打开设置',
   'chat.notice.signedIn': '已登录 {agent}。重试你的消息即可继续。',
   'chat.notice.checkAgain': '重新检查',
+  'chat.notice.agentRetired': '{old} 已不再受支持，因此此聊天将在 {agent} 上继续。',
+  'chat.notice.agentRetiredHistory': '{old} 已不再受支持，因此此聊天将在 {agent} 上继续。你的下一条消息会开始新的 {agent} 对话，并带上目前为止的聊天内容。',
   'agentReadiness.accountFound': '已找到账号',
   'agentReadiness.apiKeySaved': '已保存 API 密钥',
   'agentReadiness.notSignedIn': '未登录',
@@ -4511,11 +4513,9 @@ export const zhCN: Catalogue = {
   'agents.effort.ultra': '极致',
 
   // ---- shared/agentCatalog.ts: what to do in an agent's own sign-in terminal (a sentence without a final full stop) ----
-  'agentCatalog.hint.google': '选择 Login with Google',
   'agentCatalog.hint.qwen': '输入 /auth 并选择 Qwen OAuth',
   'agentCatalog.hint.login': '输入 /login',
   'agentCatalog.hint.browser': '在它打开的浏览器中登录',
-  'agentCatalog.install.antigravity': '在 agy 旁安装 Google 的「antigravity-acp」服务器（来自 ACP 注册表）',
   'agentCatalog.picker.note': '{agent}：{missing}',
 
   // ---- shared/agentHost.ts: how long a turn has run, in the tray while Foreman is closed ("48s", "3m", "2h") ----

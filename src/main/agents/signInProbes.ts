@@ -73,7 +73,7 @@ function filled(value: unknown): value is string {
   return v !== '' && !/^(null|none|undefined)$/i.test(v)
 }
 
-/** "~/.gemini/oauth_creds.json" for the UI. */
+/** "~/.qwen/oauth_creds.json" for the UI. */
 function shown(deps: ProbeDeps, file: string): string {
   const p = deps.platform === 'win32' ? path.win32 : path.posix
   const rel = p.relative(deps.home, file)
@@ -133,28 +133,6 @@ function found(deps: ProbeDeps, file: string, account?: string): ProbeResult {
 }
 
 // ---- per agent ----
-
-/** The Google account Gemini CLI and Antigravity record after a sign-in (`active` in google_accounts.json). */
-function googleAccount(deps: ProbeDeps, home: string): string | undefined {
-  const active = json(deps, join(deps, home, 'google_accounts.json'))?.active
-  return filled(active) ? active : undefined
-}
-
-const gemini: Probe = async (deps) => {
-  // Gemini CLI keeps its Google sign-in in ~/.gemini/oauth_creds.json (GEMINI_CLI_HOME moves the folder in newer builds).
-  const home = deps.env.GEMINI_CLI_HOME?.trim() ? join(deps, deps.env.GEMINI_CLI_HOME.trim(), '.gemini') : join(deps, deps.home, '.gemini')
-  const file = join(deps, home, 'oauth_creds.json')
-  const creds = json(deps, file)
-  if (creds && (filled(creds.refresh_token) || filled(creds.access_token))) return found(deps, file, googleAccount(deps, home))
-  return null
-}
-
-const antigravity: Probe = async (deps) => {
-  // Antigravity records the Google account it signed in with under GEMINI_HOME (default ~/.gemini).
-  const home = deps.env.GEMINI_HOME?.trim() || join(deps, deps.home, '.gemini')
-  const account = googleAccount(deps, home)
-  return account ? found(deps, join(deps, home, 'google_accounts.json'), account) : null
-}
 
 const qwen: Probe = async (deps) => {
   const home = dirFrom(deps, 'QWEN_HOME', '.qwen')
@@ -317,7 +295,7 @@ const vibe: Probe = async (deps) => {
  * Agents with a credentials probe. Kiro, Devin and Command Code answer through their own status commands
  * (CatalogAgent.auth.login.statusArgs) instead; every other agent stays Unknown.
  */
-export const SIGN_IN_PROBES: Record<string, Probe> = { gemini, antigravity, qwen, copilot, amp, droid, kimi, goose, pi, omp, cline, kilocode, auggie, grok, vibe }
+export const SIGN_IN_PROBES: Record<string, Probe> = { qwen, copilot, amp, droid, kimi, goose, pi, omp, cline, kilocode, auggie, grok, vibe }
 
 export function hasSignInProbe(id: string): boolean {
   return id in SIGN_IN_PROBES

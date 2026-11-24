@@ -35,11 +35,11 @@ afterEach(() => {
 describe('agentEnv: per-agent keys', () => {
   it('passes an agent’s own key only to it, and only in API-key mode', () => {
     const own = { GEMINI_API_KEY: 'AIza-own' }
-    const loginMode = agentEnv('gemini', settings(), {}, {}, {}, own)
+    const loginMode = agentEnv('antigravity', settings(), {}, {}, {}, own)
     // Login mode: neither the saved key nor the one in the shell.
     expect(loginMode.GEMINI_API_KEY).toBeUndefined()
     expect(loginMode.GOOGLE_API_KEY).toBeUndefined()
-    const keyMode = agentEnv('gemini', settings({ agentPrefs: { gemini: { auth: 'apiKey' } } }), {}, {}, {}, own)
+    const keyMode = agentEnv('antigravity', settings({ agentPrefs: { antigravity: { auth: 'apiKey' } } }), {}, {}, {}, own)
     expect(keyMode.GEMINI_API_KEY).toBe('AIza-own')
     // Another agent never sees it, even handed the same table by mistake.
     expect(agentEnv('qwen', settings(), {}, {}, {}, {}).GEMINI_API_KEY).toBeUndefined()
@@ -96,7 +96,7 @@ describe('shared provider keys', () => {
     // New agents start with none.
     expect(allowedProviderKeys('crush', keys, allow)).toEqual({})
     // Agents that don't take shared keys never get them, even if a stale tick names them.
-    expect(allowedProviderKeys('gemini', keys, { OPENAI_API_KEY: ['gemini'] })).toEqual({})
+    expect(allowedProviderKeys('antigravity', keys, { OPENAI_API_KEY: ['antigravity'] })).toEqual({})
     expect(allowedProviderKeys('claude', keys, { OPENAI_API_KEY: ['claude'] })).toEqual({})
   })
 
@@ -117,7 +117,7 @@ describe('shared provider keys', () => {
     allow = toggleKeyAgent(allow, 'OPENAI_API_KEY', 'aider', false)
     allow = toggleKeyAgent(allow, 'OPENAI_API_KEY', 'goose', false)
     expect(allow).toEqual({})
-    expect(parseProviderKeyAgents({ OPENAI_API_KEY: ['aider', 'gemini', 'aider', 7], 'bad name': ['aider'], GROQ_API_KEY: [] })).toEqual({ OPENAI_API_KEY: ['aider'] })
+    expect(parseProviderKeyAgents({ OPENAI_API_KEY: ['aider', 'antigravity', 'aider', 7], 'bad name': ['aider'], GROQ_API_KEY: [] })).toEqual({ OPENAI_API_KEY: ['aider'] })
   })
 })
 
@@ -190,12 +190,12 @@ describe('migration and import', () => {
   it('imports a key from the shell only while none is saved, and never overwrites one', async () => {
     const { secrets } = await store({ version: 2, user: {}, repos: {}, providers: {}, app: {} })
     const { svc, changed } = service(secrets, { GEMINI_API_KEY: 'shell-key', GROQ_API_KEY: 'gsk-shell' })
-    expect(svc.importKey('gemini')).toBe(true)
-    expect(secrets.agentKey('gemini', 'GEMINI_API_KEY')).toBe('shell-key')
-    secrets.setAgentKey('gemini', 'GEMINI_API_KEY', 'typed-key')
-    expect(svc.importKey('gemini')).toBe(false)
-    expect(secrets.agentKey('gemini', 'GEMINI_API_KEY')).toBe('typed-key')
-    expect(changed).toEqual(['gemini'])
+    expect(svc.importKey('antigravity')).toBe(true)
+    expect(secrets.agentKey('antigravity', 'GEMINI_API_KEY')).toBe('shell-key')
+    secrets.setAgentKey('antigravity', 'GEMINI_API_KEY', 'typed-key')
+    expect(svc.importKey('antigravity')).toBe(false)
+    expect(secrets.agentKey('antigravity', 'GEMINI_API_KEY')).toBe('typed-key')
+    expect(changed).toEqual(['antigravity'])
     // Provider keys: the same rule.
     expect(svc.importProviderKey('GROQ_API_KEY')).toBe(true)
     secrets.setProviderKey('GROQ_API_KEY', 'mine')
@@ -210,7 +210,7 @@ describe('migration and import', () => {
     const { secrets } = await store({ version: 2, user: {}, repos: {}, providers: {}, app: {} })
     const { svc } = service(secrets, { GEMINI_API_KEY: 'shell-key', GROQ_API_KEY: 'gsk-shell' })
     const view = await svc.view()
-    expect(view.shellKeys.gemini).toBe('GEMINI_API_KEY')
+    expect(view.shellKeys.antigravity).toBe('GEMINI_API_KEY')
     expect(view.shellProviderKeys).toContain('GROQ_API_KEY')
     expect(JSON.stringify(view)).not.toContain('shell-key')
     expect(JSON.stringify(view)).not.toContain('gsk-shell')

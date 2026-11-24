@@ -3731,6 +3731,8 @@ export const fr: Catalogue = {
   'chat.notice.openSettings': 'Ouvrir les réglages',
   'chat.notice.signedIn': 'Connecté à {agent}. Réessayez votre message pour continuer.',
   'chat.notice.checkAgain': 'Vérifier à nouveau',
+  'chat.notice.agentRetired': '{old} n’est plus pris en charge : ce chat continue donc avec {agent}.',
+  'chat.notice.agentRetiredHistory': '{old} n’est plus pris en charge : ce chat continue donc avec {agent}. Votre prochain message démarre une nouvelle conversation {agent} et lui transmet ce chat jusqu’ici.',
   'agentReadiness.accountFound': 'Compte trouvé',
   'agentReadiness.apiKeySaved': 'Clé d’API enregistrée',
   'agentReadiness.notSignedIn': 'Non connecté',
@@ -4511,11 +4513,9 @@ export const fr: Catalogue = {
   'agents.effort.ultra': 'Ultra',
 
   // ---- shared/agentCatalog.ts: what to do in an agent's own sign-in terminal (a sentence without a final full stop) ----
-  'agentCatalog.hint.google': 'Choisissez « Login with Google »',
   'agentCatalog.hint.qwen': 'Tapez /auth et choisissez « Qwen OAuth »',
   'agentCatalog.hint.login': 'Tapez /login',
   'agentCatalog.hint.browser': 'Connectez-vous dans le navigateur qui s’ouvre',
-  'agentCatalog.install.antigravity': 'Installez le serveur « antigravity-acp » de Google (depuis le registre ACP) à côté de agy',
   'agentCatalog.picker.note': '{agent} : {missing}',
 
   // ---- shared/agentHost.ts: how long a turn has run, in the tray while Foreman is closed ("48s", "3m", "2h") ----

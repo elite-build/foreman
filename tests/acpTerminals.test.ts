@@ -139,8 +139,8 @@ describe('a terminal is a piped process', () => {
 })
 
 describe('through the adapter', () => {
-  const driver = () => createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }) })
-  async function run(scenario: AcpScenario, req: Partial<TurnRequest> = {}, person: Person = {}, kind: 'gemini' | 'cursor' = 'gemini') {
+  const driver = () => createAcpDriver({ kind: 'qwen', label: 'Qwen', command: () => ({ file: 'unused', args: [] }) })
+  async function run(scenario: AcpScenario, req: Partial<TurnRequest> = {}, person: Person = {}, kind: 'qwen' | 'cursor' = 'qwen') {
     const d = createAcpDriver({ kind, label: kind, command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(acpFake(scenario)) })
     const { cb, played } = callbacks(person)
     const turn = d.createTurn(await request(req), cb)
@@ -150,7 +150,7 @@ describe('through the adapter', () => {
   const says = (p: Awaited<ReturnType<typeof run>>) => p.find('assistant').map((a) => a.text).join(' ')
 
   it('advertises terminals only for a record that offers them', () => {
-    expect(staticCapabilities('gemini')!.tools.terminals.level).toBe('native')
+    expect(staticCapabilities('qwen')!.tools.terminals.level).toBe('native')
     // OpenCode runs its own commands, as the Full agents do (it isn't an ACP agent).
     for (const agent of ['claude', 'codex', 'cursor', 'opencode']) expect(staticCapabilities(agent)!.tools.terminals.level, agent).toBe('none')
   })
@@ -211,7 +211,7 @@ describe('through the adapter', () => {
     const asked: { input: Record<string, unknown>; alternate?: string; alwaysScope?: string }[] = []
     const cwd = await makeRepo()
     mkdirSync(path.join(cwd, 'sub'))
-    const d = createAcpDriver({ kind: 'gemini', label: 'gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(acpFake('terminal-env')) })
+    const d = createAcpDriver({ kind: 'qwen', label: 'qwen', command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(acpFake('terminal-env')) })
     const { cb, played } = callbacks({ approve: (r) => (asked.push({ input: r.input as Record<string, unknown>, alternate: r.alternate, alwaysScope: r.alwaysScope }), { allow: true, alternate: Boolean(r.input.env) }) })
     await d.createTurn(await request({ approvals: 'ask', cwd }), cb).run()
     const said = played.find('assistant').map((a) => a.text).join(' ').split('|')

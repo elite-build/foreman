@@ -5,10 +5,11 @@
 // it, so the next agent can tell whose words they are. Tokens are an estimate (characters / 4), labelled as one wherever
 // they are shown. The code calls the record a hand-off; in the app it is "What <Agent> received", because Hand off already
 // means moving a workspace to another computer and handing a plan or review to a new chat.
-import { AGENTS, type AgentKind } from './agents'
+import type { AgentKind } from './agents'
 import { isChildItem } from './subagents'
 import { authorLabel, turnAuthors, type TurnAuthor } from './switchAgent'
 import type { ChatItem } from './types'
+import { historyAgentLabel } from './retiredAgents'
 
 /** How the next agent was given the chat (docs/agents.md 5.3). */
 export type HandOffStrategy = 'native-fork' | 'resume-delta' | 'inject' | 'prompt-delta' | 'prompt-full'
@@ -369,7 +370,7 @@ export function partyLabel(party: HandOffParty): string {
 }
 
 /** The agent's name alone: "Codex". */
-export const agentName = (agent: AgentKind): string => AGENTS[agent]?.label ?? agent
+export const agentName = (agent: AgentKind): string => historyAgentLabel(agent)
 
 /** The record in words for a terminal (`foreman chat switch`): English, as the CLI's other output is. */
 export function describeHandOff(handOff: ChatHandOff): string {

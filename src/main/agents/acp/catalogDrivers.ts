@@ -6,7 +6,7 @@
 // for the Agents catalog.
 import { methods as acpMethods } from '@agentclientprotocol/sdk/unstable'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { binariesFor, catalogAgent, type AcpReported, type CatalogAgent } from '../../../shared/agentCatalog'
@@ -48,7 +48,7 @@ function realLaunchEnv(): LaunchEnv {
  * How to start a Chat agent in ACP mode: the configured executable, else the
  * first of its ACP binaries found on PATH. Not found: its bare name, so the
  * spawn fails as "not installed" and the notice points at Settings.
- * G1: a separate ACP program (pi-acp, agy_acp_server) is looked for beside the agent's own CLI first
+ * G1: a separate ACP program (pi-acp) is looked for beside the agent's own CLI first
  * (the configured path, else the one on PATH). `prefix` goes before
  * the ACP arguments (Droid's `--settings <file>`).
  */
@@ -57,23 +57,12 @@ export function acpCommand(agent: CatalogAgent, executablePath: string | undefin
   const separate = acpProgramNames(agent, env.platform)
   let file: string
   if (separate.length) {
-    const search = { ...env, path: [env.path, ...(EXTRA_DIRS[agent.id]?.(env.platform) ?? [])].filter(Boolean).join(env.platform === 'win32' ? ';' : ':') }
-    file = findAcpProgram(agent, executablePath?.trim() || null, search) || separate[0]
+    file = findAcpProgram(agent, executablePath?.trim() || null, env) || separate[0]
   } else {
     const names = binariesFor(agent, env.platform)
     file = executablePath?.trim() || findBinary(names, env) || names[0]
   }
-  return launchFor(file, [...prefix, ...agent.acp.args, ...(PLATFORM_ARGS[agent.id]?.(env.platform) ?? [])], env.platform)
-}
-
-// G1: additional installation directories for Antigravity's ACP server outside PATH.
-const EXTRA_DIRS: Record<string, (platform: NodeJS.Platform) => string[]> = {
-  antigravity: (platform) => (platform === 'win32' ? [] : ['/usr/local/bin', '/opt/homebrew/bin', path.join(os.homedir(), '.local', 'bin')])
-}
-
-// G1: the ACP registry's per-platform arguments: Antigravity's Linux build needs an explicit empty --uid.
-const PLATFORM_ARGS: Record<string, (platform: NodeJS.Platform) => string[]> = {
-  antigravity: (platform) => (platform === 'linux' ? ['--uid='] : [])
+  return launchFor(file, [...prefix, ...agent.acp.args], env.platform)
 }
 
 // ---- G1: per-agent launch details ----
@@ -129,49 +118,13 @@ export function piEnv(launch: { cwd: string } | undefined): Record<string, strin
 }
 
 /**
- * Antigravity's server finds its localharness_external helper beside its real location (a symlinked server too).
- * Foreman does not set AGY_ACP_DISABLE_WORKSPACE_TRUST: a repository's hooks stay
- * behind Antigravity's own workspace trust.
+ * Whether to select Antigravity's Gemini API key method: only in API-key mode (Foreman leaves GEMINI_API_KEY in the
+ * environment then, and strips it for Login) and when `agy acp` offers it. Without this agy keeps its saved Google sign-in
+ * even with a key set; selecting it lasts for that process only and changes nothing in agy's own settings.
  */
-export function antigravityEnv(server: string, env: Record<string, string>, platform: NodeJS.Platform = process.platform, exists: (f: string) => boolean = existsSync): Record<string, string> | undefined {
-  if (env.ANTIGRAVITY_HARNESS_PATH) return undefined
-  let real = server
-  try {
-    real = realpathSync(server)
-  } catch {
-    // Not found: the spawn reports it.
-  }
-  const p = platform === 'win32' ? path.win32 : path.posix
-  const helper = p.join(p.dirname(real), platform === 'win32' ? 'localharness_external.exe' : 'localharness_external')
-  return p.isAbsolute(real) && exists(helper) ? { ANTIGRAVITY_HARNESS_PATH: helper } : undefined
-}
-
-/** GEMINI_HOME, where Antigravity keeps its sign-in: the agent's env, else Foreman's, else ~/.gemini. */
-export function geminiHome(env: Record<string, string | undefined>, home = os.homedir()): string {
-  return env.GEMINI_HOME?.trim() || process.env.GEMINI_HOME?.trim() || path.join(home, '.gemini')
-}
-
-function readJson(file: string): Record<string, unknown> | null {
-  try {
-    const value = JSON.parse(readFileSync(file, 'utf8')) as unknown
-    return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Whether to select Antigravity's "Log in with Google" for its ACP server: only when the server offers it, the
- * user is already signed in with Google (google_accounts.json names an active account) and the server has no sign-in
- * method of its own yet. Then it reuses that sign-in; it never starts a browser sign-in on its own.
- */
-export function agyShouldAuthenticate(init: { authMethods?: unknown[] | null }, home: string): boolean {
-  const offered = (init.authMethods ?? []).some((m) => (m as { id?: unknown } | null)?.id === 'oauth-personal')
-  if (!offered) return false
-  const auth = readJson(path.join(home, 'antigravity-acp', 'settings.json'))?.auth as { type?: unknown } | undefined
-  const configured = typeof auth?.type === 'string' && auth.type.trim() !== ''
-  const active = readJson(path.join(home, 'google_accounts.json'))?.active
-  return !configured && typeof active === 'string' && active.trim() !== ''
+export function agyUsesApiKey(init: { authMethods?: unknown[] | null }, env: Record<string, string | undefined>): boolean {
+  if (!env.GEMINI_API_KEY?.trim()) return false
+  return (init.authMethods ?? []).some((m) => (m as { id?: unknown } | null)?.id === 'gemini-api-key')
 }
 
 const AGY_AUTH_TIMEOUT_MS = 20_000
@@ -212,7 +165,7 @@ export function acpReported(): Record<string, AcpReported> {
   return Object.fromEntries(reported)
 }
 
-export function acpConfigFor(agent: CatalogAgent, options: { connect?: AcpConnector; launchEnv?: LaunchEnv; runtimeDir?: string; home?: string } = {}): AcpAgentConfig {
+export function acpConfigFor(agent: CatalogAgent, options: { connect?: AcpConnector; launchEnv?: LaunchEnv; runtimeDir?: string } = {}): AcpAgentConfig {
   const install = agent.acp?.install
   return {
     kind: agent.id as AgentKind,
@@ -232,7 +185,7 @@ export function acpConfigFor(agent: CatalogAgent, options: { connect?: AcpConnec
         at: new Date().toISOString()
       }),
     checkAgent: agent.acp?.expect ? (init) => expectedAgentNote(agent, init.agentInfo) : undefined,
-    ...(LAUNCH_EXTRAS[agent.id]?.(options) ?? {})
+    ...(LAUNCH_EXTRAS[agent.id]?.() ?? {})
   }
 }
 
@@ -244,26 +197,21 @@ function commandFor(agent: CatalogAgent, exe: string | undefined, launch: AcpLau
   }
   const command: AcpCommand = acpCommand(agent, exe, options.launchEnv)
   if (agent.id === 'pi') return { ...command, env: piEnv(launch) }
-  if (agent.id === 'antigravity') {
-    // The server itself, also when it runs through cmd.exe.
-    const server = command.args[0] === '/d' ? command.args[2] : command.file
-    return { ...command, env: antigravityEnv(server, launch?.env ?? {}, options.launchEnv?.platform) }
-  }
   return command
 }
 
 /** G1: per-agent startup, sign-in and instruction handling. */
-const LAUNCH_EXTRAS: Record<string, (options: { home?: string }) => Partial<AcpAgentConfig>> = {
+const LAUNCH_EXTRAS: Record<string, () => Partial<AcpAgentConfig>> = {
   // pi-acp can exit during its first handshake while its daemon starts.
   pi: () => ({ retryStartupExit: true }),
-  antigravity: (options) => ({
-    // Reuses an existing Google sign-in (never starts a browser sign-in), bounded so a hanging server can't hold the turn.
+  antigravity: () => ({
+    // Login needs nothing: agy reuses its saved Google sign-in. API-key mode selects the key, bounded so a hanging server can't hold the turn.
     afterInitialize: async (agent, init, env) => {
-      if (!agyShouldAuthenticate(init, geminiHome(env, options.home))) return
+      if (!agyUsesApiKey(init, env)) return
       let timer: NodeJS.Timeout | undefined
-      const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('Antigravity didn’t finish signing in with your Google account in time.')), AGY_AUTH_TIMEOUT_MS)))
+      const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('Antigravity didn’t accept your Gemini API key in time.')), AGY_AUTH_TIMEOUT_MS)))
       try {
-        await Promise.race([agent.request(acpMethods.agent.authenticate, { methodId: 'oauth-personal' }), timeout])
+        await Promise.race([agent.request(acpMethods.agent.authenticate, { methodId: 'gemini-api-key' }), timeout])
       } finally {
         clearTimeout(timer)
       }

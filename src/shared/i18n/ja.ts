@@ -3731,6 +3731,8 @@ export const ja: Catalogue = {
   'chat.notice.openSettings': '設定を開く',
   'chat.notice.signedIn': '{agent} にサインインしました。メッセージを再試行して続けてください。',
   'chat.notice.checkAgain': '再確認',
+  'chat.notice.agentRetired': '{old} はサポートされなくなったため、このチャットは {agent} で続行します。',
+  'chat.notice.agentRetiredHistory': '{old} はサポートされなくなったため、このチャットは {agent} で続行します。次のメッセージで新しい {agent} の会話が始まり、ここまでのチャットが引き継がれます。',
   'agentReadiness.accountFound': 'アカウントが見つかりました',
   'agentReadiness.apiKeySaved': 'API キーを保存済み',
   'agentReadiness.notSignedIn': '未サインイン',
@@ -4511,11 +4513,9 @@ export const ja: Catalogue = {
   'agents.effort.ultra': 'ウルトラ',
 
   // ---- shared/agentCatalog.ts: what to do in an agent's own sign-in terminal (a sentence without a final full stop) ----
-  'agentCatalog.hint.google': '「Login with Google」を選択',
   'agentCatalog.hint.qwen': '/auth と入力して「Qwen OAuth」を選択',
   'agentCatalog.hint.login': '/login と入力',
   'agentCatalog.hint.browser': '開いたブラウザーでサインイン',
-  'agentCatalog.install.antigravity': 'Google の「antigravity-acp」サーバー（ACP レジストリから）を agy と同じ場所にインストール',
   'agentCatalog.picker.note': '{agent}：{missing}',
 
   // ---- shared/agentHost.ts: how long a turn has run, in the tray while Foreman is closed ("48s", "3m", "2h") ----

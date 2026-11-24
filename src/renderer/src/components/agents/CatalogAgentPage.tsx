@@ -153,7 +153,7 @@ function AuthRow({ agent }: { agent: CatalogAgent }) {
                 </div>
               )}
               {detection.acpProgram && (
-                // G1: ACP is a separate program for this agent (pi-acp, agy_acp_server); found beside the CLI or on PATH, or not.
+                // G1: ACP is a separate program for this agent (pi-acp); found beside the CLI or on PATH, or not.
                 <div className="ag-status-row">
                   <dt>{t('g1.acpProgram.label')}</dt>
                   <dd className="mono" title={detection.acpProgram.path}>

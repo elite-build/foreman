@@ -10,6 +10,7 @@ import { AGENTS, modelInfo, type AgentKind, type Loadout } from './agents'
 import type { ChatHandOff, HandOffParty } from './chatHandOff'
 import { readOnlyEnforcement } from './permissions'
 import type { ChatItem, Session } from './types'
+import { historyAgentLabel } from './retiredAgents'
 
 /** The divider a switch leaves in the chat. `history`: the new agent gets the earlier messages as text; `native`: it resumed its own conversation. */
 export interface AgentSwitch {
@@ -116,7 +117,7 @@ export function authorLabel(author: TurnAuthor): string {
 
 /** The agents that answered these turns, by name: "Claude Code", "Claude Code and Codex". */
 export function answeredBy(items: ChatItem[], current: Pick<TurnAuthor, 'agent'>): string {
-  const names = [...new Set([...turnAuthors(items, current).values()].map((a) => AGENTS[a.agent]?.label ?? a.agent))]
+  const names = [...new Set([...turnAuthors(items, current).values()].map((a) => historyAgentLabel(a.agent)))]
   if (names.length <= 1) return names[0] ?? AGENTS[current.agent].label
   return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
 }

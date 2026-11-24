@@ -48,6 +48,7 @@ import { LimitResumePart, PausedCard } from './LimitResume'
 import { SignInNotice } from './SignInNotice'
 import { AutoReviewFindings, AutoReviewReceipt } from './AutoReview'
 import { withoutFindingsBlock } from '../../../shared/autoReview'
+import { historyAgentLabel } from '../../../shared/retiredAgents'
 
 const EMPTY: ChatItem[] = []
 const NO_TASKS: ReadonlySet<string> = new Set()
@@ -1131,7 +1132,7 @@ function TurnReceipt({
             {by && (
               <span className="turn-by">
                 {numbers ? ' · ' : ''}
-                {by.model ? modelInfo(by.agent, by.model).label : AGENTS[by.agent]?.label ?? by.agent}
+                {by.model ? modelInfo(by.agent, by.model).label : historyAgentLabel(by.agent)}
               </span>
             )}
           </span>
@@ -1426,7 +1427,7 @@ function ChatDividerLine({ divider }: { divider: ChatDivider }) {
         <span>
           {divider.from === divider.to
             ? t.rich('g1.divider.modelBack', { model: <b key="m">{to}</b> })
-            : t.rich('g1.divider.model', { from: modelInfo(divider.agent, divider.from).label, model: <b key="m">{to}</b>, agent: AGENTS[divider.agent]?.label ?? divider.agent })}
+            : t.rich('g1.divider.model', { from: modelInfo(divider.agent, divider.from).label, model: <b key="m">{to}</b>, agent: historyAgentLabel(divider.agent) })}
         </span>
       </span>
     </div>

@@ -36,7 +36,7 @@ const NOTE_LABEL: Partial<Record<Capability, PlainKey>> = {
   steer: 'agentCatalog.picker.noSteer'
 }
 
-/** "Gemini CLI: no plan mode, no rewind", or undefined when nothing's missing. */
+/** "Qwen Code: no plan mode, no rewind", or undefined when nothing's missing. */
 export function capabilityNote(agent: PickerAgent, t: RendererT): string | undefined {
   const missing = noteCapabilities(agent)
   if (!missing.length) return undefined

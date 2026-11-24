@@ -4202,6 +4202,9 @@ export const en = {
   'chat.notice.openSettings': 'Open settings',
   'chat.notice.signedIn': 'Signed in to {agent}. Retry your message to continue.',
   'chat.notice.checkAgain': 'Check again',
+  // A chat that ran on an agent Foreman no longer supports, moved to the agent that replaced it. {old}: "Gemini CLI"; {agent}: "Antigravity".
+  'chat.notice.agentRetired': '{old} is no longer supported, so this chat continues on {agent}.',
+  'chat.notice.agentRetiredHistory': '{old} is no longer supported, so this chat continues on {agent}. Your next message starts a new {agent} conversation and takes this chat so far with it.',
   // Agent readiness: sign-in status worded by its evidence (picker, New workspace, first run).
   'agentReadiness.accountFound': 'Account found',
   'agentReadiness.apiKeySaved': 'API key saved',
@@ -5125,13 +5128,10 @@ export const en = {
   'agents.effort.max': 'Max',
   'agents.effort.ultra': 'Ultra',
   // ---- shared/agentCatalog.ts: what to do in an agent's own sign-in terminal (a sentence without a final full stop) ----
-  'agentCatalog.hint.google': 'Choose Login with Google',
   'agentCatalog.hint.qwen': 'Type /auth and choose Qwen OAuth',
   'agentCatalog.hint.login': 'Type /login',
   'agentCatalog.hint.browser': 'Sign in in the browser it opens',
-  // How to get Antigravity's separate ACP program. "agy" is its command.
-  'agentCatalog.install.antigravity': 'Install Google’s “antigravity-acp” server (from the ACP registry) next to agy',
-  // Capability note in the model picker: "Gemini CLI: no plan mode, no rewind". {missing} is a list.
+  // Capability note in the model picker: "Qwen Code: no plan mode, no rewind". {missing} is a list.
   'agentCatalog.picker.note': '{agent}: {missing}',
   // ---- shared/agentHost.ts: how long a turn has run, in the tray while Foreman is closed ("48s", "3m", "2h") ----
   'agentHost.age.seconds': '{count}s',

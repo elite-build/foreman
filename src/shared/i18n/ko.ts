@@ -3731,6 +3731,8 @@ export const ko: Catalogue = {
   'chat.notice.openSettings': '설정 열기',
   'chat.notice.signedIn': '{agent}에 로그인했습니다. 메시지를 다시 시도해 계속하세요.',
   'chat.notice.checkAgain': '다시 확인',
+  'chat.notice.agentRetired': '{old}은(는) 더 이상 지원되지 않으므로 이 채팅은 {agent}에서 계속됩니다.',
+  'chat.notice.agentRetiredHistory': '{old}은(는) 더 이상 지원되지 않으므로 이 채팅은 {agent}에서 계속됩니다. 다음 메시지에서 새 {agent} 대화가 시작되며 지금까지의 채팅을 함께 가져갑니다.',
   'agentReadiness.accountFound': '계정을 찾았습니다',
   'agentReadiness.apiKeySaved': 'API 키 저장됨',
   'agentReadiness.notSignedIn': '로그인 안 됨',
@@ -4511,11 +4513,9 @@ export const ko: Catalogue = {
   'agents.effort.ultra': '울트라',
 
   // ---- shared/agentCatalog.ts: what to do in an agent's own sign-in terminal (a sentence without a final full stop) ----
-  'agentCatalog.hint.google': 'Login with Google을 선택하세요',
   'agentCatalog.hint.qwen': '/auth를 입력하고 Qwen OAuth를 선택하세요',
   'agentCatalog.hint.login': '/login을 입력하세요',
   'agentCatalog.hint.browser': '열리는 브라우저에서 로그인하세요',
-  'agentCatalog.install.antigravity': 'agy와 같은 위치에 Google의 “antigravity-acp” 서버(ACP 레지스트리 제공)를 설치하세요',
   'agentCatalog.picker.note': '{agent}: {missing}',
 
   // ---- shared/agentHost.ts: how long a turn has run, in the tray while Foreman is closed ("48s", "3m", "2h") ----

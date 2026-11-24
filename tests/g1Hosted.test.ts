@@ -154,7 +154,7 @@ describe('G1 · O10: Cursor and OpenCode turns in the background host (fakes; un
   it('keeps Cursor and OpenCode turns; Chat agents still stop at Quit', () => {
     expect(keptRunning('cursor')).toBe(true)
     expect(keptRunning('opencode')).toBe(true)
-    expect(keptRunning('gemini')).toBe(false)
+    expect(keptRunning('qwen')).toBe(false)
   })
 
   it('runs a Cursor turn in the host: the report tool is logged there and replayed to the app', async () => {

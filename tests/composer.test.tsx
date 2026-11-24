@@ -419,9 +419,9 @@ describe('the toolbar', () => {
 
   it('an ACP agent that declared a plan mode has Plan on; one that did not shows it disabled', () => {
     const before = fakeState.snapshot.agentCapabilities
-    fakeState.snapshot.agentCapabilities = { ...staticCapabilitiesView(), declared: { gemini: { '': { planMode: true } } } }
+    fakeState.snapshot.agentCapabilities = { ...staticCapabilitiesView(), declared: { antigravity: { '': { planMode: true } } } }
     try {
-      const { unmount } = renderComposer({ agent: 'gemini' })
+      const { unmount } = renderComposer({ agent: 'antigravity' })
       expect((screen.getByRole('button', { name: /Plan/ }) as HTMLButtonElement).disabled).toBe(false)
       unmount()
       renderComposer({ agent: 'qwen' })

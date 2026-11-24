@@ -65,7 +65,7 @@ describe('the picker keeps a signed-out agent selectable but says so', () => {
   })
 
   it('carries evidence for the Full agents only', () => {
-    const groups = pickerGroups({ gemini: { enabled: true } }, { cursor: true, opencode: true, statuses: { claude: status({ agent: 'claude' }) } })
+    const groups = pickerGroups({ antigravity: { enabled: true } }, { cursor: true, opencode: true, statuses: { claude: status({ agent: 'claude' }) } })
     expect(groups.find((g) => g.level === 'full')!.agents.map((a) => [a.id, a.readiness?.evidenceKey])).toEqual([
       ['claude', 'agentReadiness.accountFound'],
       ['codex', 'agentReadiness.checking'],

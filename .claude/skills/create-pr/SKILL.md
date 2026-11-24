@@ -74,8 +74,16 @@ When the diff changes what the app draws (anything under `src/renderer/` beyond 
 - **What changed**: the files a reviewer should open first, each with what it does now, and why this way when there was a real alternative. Not every file.
 - **UI**: what [ui-changes.md](ui-changes.md) produced.
 - **Verification**: each command from step 2 with its result (`npm test`: N files, N tests, pass). Mark proof by kind where it isn't obvious: a test with a fake process is not a run with the real agent, and a fixture screenshot is not a manual check. "Not verified: …, because …" is a fine line to write.
-- **Compatibility**: only for the one-way changes from step 3. What an existing install sees when it updates, and what a user has to do.
-- **Release note**: one line per user-visible effect, each starting with its category: `Added`, `Changed`, `Fixed`, `Security` or `Development`. Write it in the changelog's voice: what the user notices, UI names in **bold**, not the implementation and not the PR title again. From `CHANGELOG.md`: "Fixed: Plans from ACP agents (such as OpenCode) show in the chat again." For a change nobody would notice (a refactor, tests only), write `None: <reason>`.
+- **Compatibility**: only for the one-way changes from step 3. What an existing install sees when it updates, and what a user has to do. If a user has to do something, the release note gets a `Before you update` line too.
+- **Release note**: one line per effect a user notices, each starting with its section. The sections are the changelog's, in the order a reader needs them:
+  - `Before you update`: something the user has to know or do before or right after updating. For example, a habit that stops working, a setting that resets, data that can't go back to the earlier version, or a platform that's no longer supported.
+  - `Security`: approvals, permissions, credentials, what leaves the computer, and fixed vulnerabilities. Link a CVE or advisory and say who is affected.
+  - `Fixed`: something that was broken and now works.
+  - `Added`: something new.
+  - `Changed`: something that works differently, when nobody has to act on it.
+  - `Development`: something only contributors notice (tests, tooling, docs). It goes in `CHANGELOG.md` but not in the release's notes.
+
+  Write in the changelog's voice: what the user notices, UI names in **bold**, not the implementation and not the PR title again. Give each effect its own line, even within one section. A change that adds a feature and fixes a bug gets an `Added` line and a `Fixed` line, not one long sentence. A line that changes how something already worked says what it did before, what it does now and, when the user has to act, what to do. Give an example when the rule alone is hard to picture. For example: "Security: With **Ask** or **Ask except edits**, OpenCode now asks before editing files or running commands; before, it went ahead without asking." For a change nobody would notice (a refactor, tests only), write `None: <reason>`.
 
 End the body with any attribution line your tools require.
 

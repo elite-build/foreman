@@ -9,7 +9,6 @@
 // from timing (`reconstructed`, drawn dashed, with the record it `needs`). The graph has flowGraph's shape, so
 // flowMermaid draws it; lineageOutline is its accessible list, and draftFlowFromLineage turns it into a flow file to
 // edit. Pure: the caller reads the records (bounded: the workspace's chats and one hop of linked ones).
-import { AGENTS } from './agents'
 import { FLOW_DONE, type FlowRun } from './flows'
 import { modelWords, stateText, type FlowGraph, type FlowGraphEdge, type FlowGraphNode, type FlowLens, type FlowNodeState } from './flowGraph'
 import { CONTINUE_MESSAGE, REVIEW_MESSAGE, SECOND_OPINION_MESSAGE } from './handOff'
@@ -18,9 +17,10 @@ import { createT, type Locale, type PlainKey, type TFunction } from './i18n'
 import { formatCompact } from './i18n/time'
 import { memoryLabel } from './memoryPaths'
 import type { ChatItem, ContextPart, HandOffKind, Session, TurnOutcome, Workspace } from './types'
+import { historyAgentLabel } from './retiredAgents'
 
 const enT = createT('en')
-const AGENT_NAME = (agent: string) => AGENTS[agent as keyof typeof AGENTS]?.label ?? agent
+const AGENT_NAME = (agent: string) => historyAgentLabel(agent)
 
 export type LineageLens = FlowLens
 export const LINEAGE_LENSES: readonly LineageLens[] = ['run', 'context', 'memory', 'data']

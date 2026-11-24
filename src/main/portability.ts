@@ -29,7 +29,8 @@ import {
   type RepoOption,
   type StageResult
 } from '../shared/portable'
-import { AGENTS, type AgentKind } from '../shared/agents'
+import { AGENTS, DEFAULT_MODEL, type AgentKind } from '../shared/agents'
+import { retiredSuccessor } from '../shared/retiredAgents'
 import { turnOutcomeOf, type Attachment, type ChatItem, type DiffComment, type LastTurnOutcome, type Repo, type Session, type Workspace } from '../shared/types'
 import { exportIntegrationChoices, importIntegrationChoices } from '../shared/integrations'
 import { DEFAULT_LIMITS, ExportFileError, decrypt, encrypt, isEncrypted, pack, parse, type Limits, type PackEntry, type ParsedEntry } from './exportFile'
@@ -110,7 +111,9 @@ function safeName(name: string): string {
 function sanitizeSession(raw: unknown): SessionData {
   if (!isObject(raw)) throw new ExportFileError('tampered', 'A chat in the file is malformed.')
   const id = str(raw.id, 100)
-  const agent = str(raw.agent, 20) as AgentKind | undefined
+  // A chat on an agent Foreman dropped (Gemini CLI) comes in on its successor, without the dropped agent's own handles.
+  const successor = retiredSuccessor(raw.agent)
+  const agent = successor ?? (str(raw.agent, 20) as AgentKind | undefined)
   if (!id || !agent || !(agent in AGENTS)) throw new ExportFileError('tampered', 'A chat in the file is malformed.')
   const out: SessionData = {
     id,
@@ -137,6 +140,13 @@ function sanitizeSession(raw: unknown): SessionData {
   const lastTurn = sanitizeLastTurn(raw.lastTurn)
   if (lastTurn) out.lastTurn = lastTurn
   if (isObject(raw.contextUsage) && typeof raw.contextUsage.used === 'number' && typeof raw.contextUsage.limit === 'number') out.contextUsage = { used: raw.contextUsage.used, limit: raw.contextUsage.limit }
+  if (successor) {
+    out.model = DEFAULT_MODEL[successor]
+    delete out.effort
+    delete out.agentSessionId
+    delete out.lastAssistantUuid
+    delete out.contextUsage
+  }
   return out
 }
 
