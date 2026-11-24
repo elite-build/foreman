@@ -22,4 +22,4 @@
 
 ## Release note
 
-<!-- Added | Changed | Fixed | Security | Development: one sentence a user would understand. Or "None: <reason>". -->
+<!-- One line per thing a user notices, each starting with its section: Before you update | Security | Fixed | Added | Changed | Development. Split a change that does two things into two lines. A change to how something already worked says what it did before, what it does now and what to do about it. Or "None: <reason>". -->

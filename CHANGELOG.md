@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
+Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made. Each release's sections come in the order a reader needs them: **Before you update** (anything to do or know first), **Security**, **Fixed**, **Added**, **Changed**, and **Development** (for contributors only, left out of the release's notes in the app). Releases up to 1.2.12 list them as Added, Changed, Fixed, Security and Development.
 
 ## 1.2.12 (2026-11-23)
 
