@@ -1,6 +1,6 @@
 // Add repository: open a folder, clone from GitHub or a URL, start a new
 // project, or reopen a recent folder.
-import { FolderOpen, FolderPlus, Globe, Lock, Search } from 'lucide-react'
+import { Building2, ChevronRight, Clock, Download, FolderOpen, FolderPlus, Globe, Lock, Plus, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { currentSpace, type Organization } from '../../../shared/organizations'
 import { GITHUB_REPOS_LISTED, type GithubRepo, type GitIdentity } from '../../../shared/types'
@@ -12,14 +12,17 @@ import {
   makeRepository,
   onCloneProgress,
   openAddRepoDialog,
+  openCreateOrganization,
   openMakeRepo,
+  openRecentRepo,
   quickStartRepository,
+  setSpace,
   useStore
 } from '../store'
 import { useT } from '../i18n'
 import { formatChord } from '../shortcuts'
 import { timeAgo } from '../../../shared/i18n/time'
-import { Button, Callout, Checkbox, Combobox, Dialog, Field, Kbd, Listbox, CardButton, Spinner, TextInput } from '../ui'
+import { Button, Callout, Card, Checkbox, Combobox, Dialog, Field, Kbd, Listbox, CardButton, Segmented, Select, Spinner, TextInput } from '../ui'
 import { AccountPicker, useGithubAccounts } from './settings/GithubAccount'
 
 /** ~ for the home folder in displayed paths. */
@@ -433,6 +436,114 @@ export function MakeRepoDialog({ dir }: { dir: string }) {
             {error}
           </Callout>
         )}
+      </div>
+    </Dialog>
+  )
+}
+
+const PERSONAL = 'personal'
+
+/**
+ * Add to Foreman (the rail's +): a repository on the left, which space it joins and the three ways in, with recent folders;
+ * an organization on the right. The ways run as the Add menu's do, after the dialog closes and the space chosen is shown.
+ */
+export function AddToForemanDialog() {
+  const t = useT()
+  const snapshot = useStore((s) => s.snapshot!)
+  const wanted = useStore((s) => s.space)
+  const organizations = snapshot.organizations ?? []
+  const shown = currentSpace(organizations, wanted)
+  const recent = snapshot.recentRepos.slice(0, 3)
+  const [target, setTarget] = useState<string>(shown ?? PERSONAL)
+  const spaces = [{ value: PERSONAL, label: t('spaces.personal') }, ...organizations.map((o) => ({ value: o.id, label: o.name }))]
+  const go = (run: () => void) => () => {
+    const space = target === PERSONAL ? null : target
+    openAddRepoDialog(null)
+    if (space !== shown) setSpace(space, { home: false })
+    run()
+  }
+
+  return (
+    <Dialog
+      title={t('addRepo.add.title')}
+      size="lg"
+      onClose={() => openAddRepoDialog(null)}
+      footer={
+        <>
+          <span className="add-dialog-drop faint small">
+            <Download size={13} aria-hidden /> {t('addRepo.add.drop')}
+          </span>
+          <Button onClick={() => openAddRepoDialog(null)}>{t('common.cancel')}</Button>
+        </>
+      }
+    >
+      <div className="add-dialog">
+        <section className="add-dialog-col">
+          <div className="add-dialog-head">
+            <div className="add-repo-label">{t('addRepo.add.repository')}</div>
+            {organizations.length > 0 &&
+              (spaces.length <= 4 ? (
+                <Segmented small label={t('addRepo.add.to')} value={target} options={spaces} onChange={setTarget} />
+              ) : (
+                <Select label={t('addRepo.add.to')} value={target} options={spaces} onChange={setTarget} />
+              ))}
+          </div>
+          <CardButton className="add-dialog-way" onClick={go(() => void addRepository())}>
+            <FolderOpen size={18} aria-hidden />
+            <span className="add-dialog-way-text">
+              <span>{t('addRepo.openProject')}</span>
+              <span className="faint small">{t('addRepo.add.openDetail')}</span>
+            </span>
+            <ChevronRight size={14} aria-hidden />
+          </CardButton>
+          <CardButton className="add-dialog-way" onClick={go(() => openAddRepoDialog('clone'))}>
+            <Globe size={18} aria-hidden />
+            <span className="add-dialog-way-text">
+              <span>{t('addRepo.openGithub')}</span>
+              <span className="faint small">{t('addRepo.add.cloneDetail')}</span>
+            </span>
+            <ChevronRight size={14} aria-hidden />
+          </CardButton>
+          <CardButton className="add-dialog-way" onClick={go(() => openAddRepoDialog('quick-start'))}>
+            <FolderPlus size={18} aria-hidden />
+            <span className="add-dialog-way-text">
+              <span>{t('addRepo.quickStart')}</span>
+              <span className="faint small">{t('addRepo.add.quickDetail')}</span>
+            </span>
+            <ChevronRight size={14} aria-hidden />
+          </CardButton>
+          {recent.length > 0 && (
+            <>
+              <div className="add-repo-label">{t('addRepo.recentFolders')}</div>
+              {recent.map((p) => (
+                <Button key={p} variant="ghost" size="sm" className="add-dialog-recent" title={p} onClick={go(() => void openRecentRepo(p))}>
+                  <Clock size={13} aria-hidden />
+                  {tildify(p, snapshot.homeDir)}
+                </Button>
+              ))}
+            </>
+          )}
+        </section>
+        <section className="add-dialog-col">
+          <div className="add-dialog-head">
+            <div className="add-repo-label">{t('addRepo.add.organization')}</div>
+          </div>
+          <Card className="add-dialog-org">
+            <strong className="add-dialog-org-title">
+              <Building2 size={16} aria-hidden /> {t('spaces.create.title')}
+            </strong>
+            <p className="faint small">{t('addRepo.add.orgBody')}</p>
+            <Button
+              icon={<Plus size={14} />}
+              onClick={() => {
+                openAddRepoDialog(null)
+                openCreateOrganization(true)
+              }}
+            >
+              {t('spaces.create.menu')}
+            </Button>
+          </Card>
+        </section>
       </div>
     </Dialog>
   )

@@ -220,8 +220,8 @@ interface State {
   // Text the New workspace dialog starts with ("Start workspace with this answer"), and the template it came from.
   newWorkspacePrompt: string | null
   newWorkspaceTemplate: string | null
-  // Add repository dialogs: clone from GitHub / a URL, or start a new one.
-  addRepoDialog: 'clone' | 'quick-start' | null
+  // Add repository dialogs: Add to Foreman (the rail's +), clone from GitHub / a URL, or start a new one.
+  addRepoDialog: 'add' | 'clone' | 'quick-start' | null
   // A folder that isn't a Git repository, with the offer to make it one (MakeRepoDialog).
   makeRepoDir: string | null
   // Workspace id → nonce, bumped when setup finished and the run script should start.
@@ -1853,8 +1853,20 @@ export function onCloneProgress(cloneId: string, listener: (line: string) => voi
   return () => cloneListeners.delete(cloneId)
 }
 
-/** A repository that was just added: offer its first workspace. */
-function repoAdded(repoId: string): void {
+/** Ids of the repositories registered now: taken before an add, so repoAdded can tell a new repository from one opened again. */
+function knownRepoIds(): Set<string> {
+  return new Set((state.snapshot?.repos ?? []).map((r) => r.id))
+}
+
+/**
+ * A repository that was just added: offer its first workspace. A new one added while an organization is shown joins it
+ * (the Add menus say "Add a repository to <space>"); one that was already registered keeps its space.
+ */
+function repoAdded(repoId: string, known: Set<string>): void {
+  const snapshot = state.snapshot
+  const organization = currentSpace(snapshot?.organizations, state.space)
+  const repo = snapshot?.repos.find((r) => r.id === repoId)
+  if (organization && !known.has(repoId) && (repo?.spaceId ?? null) !== organization) void attempt(() => api.moveRepoToSpace(repoId, organization))
   setState({ addRepoDialog: null, makeRepoDir: null })
   openSettingsPage(null)
   openNewWorkspace(repoId)
@@ -1867,17 +1879,19 @@ export function openMakeRepo(dir: string | null): void {
 
 /** Make `dir` a Git repository and add it. 'needs-identity' means Git has no name and email: ask, then call again with them. Throws on failure. */
 export async function makeRepository(dir: string, identity?: GitIdentity): Promise<'added' | 'needs-identity'> {
+  const known = knownRepoIds()
   const result = await api.makeRepo(dir, identity)
   if (!result.ok) return result.reason
-  repoAdded(result.repo.id)
+  repoAdded(result.repo.id, known)
   return 'added'
 }
 
 /** Add a folder outside git as it is (Repo.plain): no branches, diff or checkpoints. Throws on failure. */
 export async function addPlainFolder(dir: string): Promise<void> {
+  const known = knownRepoIds()
   const repo = await api.addRepo(dir, { plain: true })
   openMakeRepo(null)
-  repoAdded(repo.id)
+  repoAdded(repo.id, known)
 }
 
 /** addRepo, except that a folder outside Git opens the offer to make it a repository instead of an error. */
@@ -1893,8 +1907,9 @@ async function addRepoOrOffer(dir: string): Promise<{ id: string } | undefined> 
 
 /** Add a folder that was opened before (from Recents). */
 export async function openRecentRepo(path: string): Promise<void> {
+  const known = knownRepoIds()
   const repo = await addRepoOrOffer(path)
-  if (repo) repoAdded(repo.id)
+  if (repo) repoAdded(repo.id, known)
 }
 
 /**
@@ -1902,13 +1917,15 @@ export async function openRecentRepo(path: string): Promise<void> {
  * repositories in a folder of their own), the new repository joins it; Quick start likewise.
  */
 export async function cloneRepository(url: string, parentDir: string, cloneId: string, account?: string, organizationId?: string): Promise<void> {
+  const known = knownRepoIds()
   const repo = await api.cloneRepo(url, parentDir, cloneId, account, organizationId)
-  repoAdded(repo.id)
+  repoAdded(repo.id, known)
 }
 
 export async function quickStartRepository(parentDir: string, name: string, organizationId?: string): Promise<void> {
+  const known = knownRepoIds()
   const repo = await api.quickStartRepo(parentDir, name, organizationId)
-  repoAdded(repo.id)
+  repoAdded(repo.id, known)
 }
 
 export function openNewWorkspace(asked: string | null, prompt?: string, templateId?: string): void {
@@ -1974,14 +1991,16 @@ export async function adoptWorktree(repoId: string, path: string, options: Adopt
 }
 
 export async function addRepository(): Promise<void> {
+  const known = knownRepoIds()
   const dir = await attempt(() => api.pickDirectory())
   if (!dir) return
   const repo = await addRepoOrOffer(dir)
-  if (repo) repoAdded(repo.id)
+  if (repo) repoAdded(repo.id, known)
 }
 
 /** O21: add the folders confirmed after a drop and select the first in the rail; one alone also offers its first workspace. Returns how many were added. */
 export async function addDroppedRepositories(paths: string[]): Promise<number> {
+  const known = knownRepoIds()
   const added: string[] = []
   for (const dir of paths) {
     const repo = await attempt(() => api.addRepo(dir))
@@ -1989,7 +2008,7 @@ export async function addDroppedRepositories(paths: string[]): Promise<number> {
   }
   if (!added.length) return 0
   showRepoHome(added[0])
-  if (added.length === 1) repoAdded(added[0])
+  if (added.length === 1) repoAdded(added[0], known)
   return added.length
 }
 

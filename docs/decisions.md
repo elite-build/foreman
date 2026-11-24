@@ -429,3 +429,9 @@ A row says what its workspace is for, not what it is called: its first chat's ti
 **Turned down.** Running on every push, drafts included (spends runs on unfinished work). Windows and macOS after each merge (the Release workflow builds both, and a red `main` blocks nobody). The old nine-job grid on every PR event (it would hold the five macOS runners the organization gets at once).
 
 **Revisit when.** Nightly finds macOS-only failures often enough to block merges on them.
+
+## 2026-11-24: Adding a repository has two ways in: a folder button beside New workspace, and the rail's + opens Add to Foreman
+
+**Decision.** The rail's + under the spaces opens Add to Foreman: a repository (Open a folder, Clone from GitHub, Start a new repository, recent folders, and which space it joins) beside an organization. In Inbox and Work, a folder-plus at the end of the New workspace row opens a short menu of the same three ways and recent folders for the space shown, ending in More ways…, which opens the dialog. A new repository added while an organization is shown joins it. The ▾ New list keeps its rows.
+
+**Why.** Since organizations, the rail's + only made an organization and adding a repository was the sixth row of the ▾ list. Of 11 mocks the person picked the dialog on the rail and the button beside New workspace together. This narrows the 2026-11-19 entry: New is still the split button; repositories get their own button beside it.

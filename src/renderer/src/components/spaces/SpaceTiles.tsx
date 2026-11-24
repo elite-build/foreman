@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { currentSpace, spaceIcon, type Organization } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
 import { useNeedsYou } from '../../needsYou'
-import { openCreateOrganization, openSettingsPage, setSpace, useStore } from '../../store'
+import { openAddRepoDialog, openSettingsPage, setSpace, useStore } from '../../store'
 import { CardButton, ContextMenu, IconButton, MenuItem } from '../../ui'
 import { RepoIconView } from '../settings/RepoIcon'
 
@@ -13,7 +13,7 @@ import { RepoIconView } from '../settings/RepoIcon'
  * name under it, so which space is shown is never a word in a menu. The one shown is the selected tile; every other says
  * ▲ and how much waits in it (the shared needs-you count), so where else you're wanted is in sight too (what waits here is
  * on Inbox). A tile shows its space (and Home); right-click an organization's for Manage spaces (never its memory: nothing
- * on the left opens it, docs/decisions.md). + under them makes an organization.
+ * on the left opens it, docs/decisions.md). + under them opens Add to Foreman: a repository, or an organization.
  */
 export function SpaceTiles() {
   const t = useT()
@@ -71,7 +71,7 @@ export function SpaceTiles() {
           </span>
         )
       })}
-      <IconButton className="rail-new-space" label={t('spaces.create.menu')} onClick={() => openCreateOrganization(true)}>
+      <IconButton className="rail-new-space" label={t('spaces.add.label')} onClick={() => openAddRepoDialog('add')}>
         <Plus size={15} />
       </IconButton>
       {menu && (

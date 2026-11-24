@@ -271,6 +271,21 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openAddRepoDialog('clone')
     return '.add-repo-combo .ui-option'
   },
+  // Add to Foreman, the rail's +: a repository (and the space it joins) beside an organization.
+  'add-dialog': () => {
+    showRepoHome(null)
+    openAddRepoDialog('add')
+    return '.add-dialog'
+  },
+  // The folder-plus beside New workspace, in Personal and Work: the menu of the ways to add a repository.
+  'add-menu': async () => {
+    setSpace(null, { home: false })
+    setSidebarMode('work')
+    const trigger = await waitFor(element('.sidebar-add-repo'))
+    if (!trigger) return null
+    trigger.click()
+    return '.ui-menu'
+  },
   // Settings › Quick: what Settings opens on.
   'settings-quick': () => (openSettingsPage({ section: 'quick' }), '.settings-view .qt-grid'),
   // Choosing tiles: move and remove on each, Add a tile, and the line where the gear's popover stops.
