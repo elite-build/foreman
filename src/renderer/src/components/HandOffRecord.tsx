@@ -4,15 +4,16 @@
 import { useState, type ReactNode } from 'react'
 import { offers } from '../../../shared/agentCapabilities'
 import { instanceLabel } from '../../../shared/agentInstances'
-import { AGENTS, modelInfo } from '../../../shared/agents'
+import { modelInfo } from '../../../shared/agents'
 import { READ_CHAT_HISTORY_TOOL_NAME, type ChatHandOff, type HandOffParty, type HandOffTurn } from '../../../shared/chatHandOff'
 import { useT } from '../i18n'
 import { openSettingsPage, useCapabilities, useStore } from '../store'
 import { Button, Dialog, Glyph, LinkButton, Meter, Tag } from '../ui'
 import { AgentIcon } from './composer/AgentPicker'
+import { historyAgentLabel } from '../../../shared/retiredAgents'
 import './handOffRecord.css'
 
-const agentName = (agent: string) => AGENTS[agent as keyof typeof AGENTS]?.label ?? agent
+const agentName = (agent: string) => historyAgentLabel(agent)
 
 /**
  * The notice's words about a record: "6 turns in full, 4 condensed, 3 left out · 15,200 of 16,000 tokens" (the tokens are an

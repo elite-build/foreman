@@ -25,12 +25,13 @@ type PageTab = 'task' | 'models' | 'steps' | 'approves'
 
 const REMEMBER = 'foreman.flowRun.models'
 
-/** The models last chosen for each flow, by flow id. */
+/** The models last chosen for each flow, by flow id. A choice of an agent Foreman no longer has (Gemini CLI) is forgotten. */
 function remembered(flowId: string): FlowModelChoices {
   try {
     const all = JSON.parse(localStorage.getItem(REMEMBER) ?? '{}') as Record<string, FlowModelChoices>
     const mine = all[flowId]
-    return mine && typeof mine === 'object' && !Array.isArray(mine) ? mine : {}
+    if (!mine || typeof mine !== 'object' || Array.isArray(mine)) return {}
+    return Object.fromEntries(Object.entries(mine).filter(([, c]) => c && typeof c === 'object' && Object.hasOwn(AGENTS, c.agent)))
   } catch {
     return {}
   }

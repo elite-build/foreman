@@ -74,7 +74,7 @@ export function enabledCount(prefs: AgentPrefs | undefined): { enabled: number; 
 // Missing capabilities worth a hover note (approvals and cost aren't controls in the composer).
 const NOTE_CAPS: Capability[] = ['plan', 'rewind', 'steer']
 
-/** The capabilities a Chat agent's hover note names, e.g. plan and rewind for "Gemini CLI: no plan mode, no rewind". */
+/** The capabilities a Chat agent's hover note names, e.g. plan and rewind for "Qwen Code: no plan mode, no rewind". */
 export function noteCapabilities(agent: PickerAgent): Capability[] {
   if (agent.level !== 'chat') return []
   return NOTE_CAPS.filter((c) => agent.missing.includes(c))

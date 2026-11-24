@@ -51,7 +51,7 @@ describe('the status of a version', () => {
     expect(statusOf(table, '1.5.1')).toBe('untested')
     expect(statusOf(table, 'dev')).toBe('untested')
     expect(statusOf(undefined, '1.5.0')).toBe('untested')
-    expect(versionStatus('gemini', '1.0.0')).toBe('untested')
+    expect(versionStatus('antigravity', '1.0.0')).toBe('untested')
   })
 
   it('is degraded inside a degraded range or below its bound, with the reason', () => {

@@ -551,7 +551,7 @@ describe.skipIf(!probe)('cloud turns in the sandbox host', () => {
     const r = await rig({ vars })
     r.secrets.setProviderKey('OPENAI_API_KEY', 'provider-key')
     const env = (agent: string, base: Record<string, string> = {}) => (r.cloud as unknown as { turnEnv(a: string, w: Workspace, b: Record<string, string>): Record<string, string> }).turnEnv(agent, r.ws, base)
-    for (const agent of ['claude', 'codex', 'opencode', 'gemini']) {
+    for (const agent of ['claude', 'codex', 'opencode', 'antigravity']) {
       const got = env(agent, { VERCEL_TOKEN, TURN: 'x' })
       expect(got.VERCEL_TOKEN, agent).toBeUndefined()
       expect(got['integration:vc1'], agent).toBeUndefined()

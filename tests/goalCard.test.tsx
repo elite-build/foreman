@@ -72,7 +72,7 @@ describe('the goal card', () => {
 describe('the /goal command', () => {
   it('is offered where the record says the agent keeps goals, and nowhere else', () => {
     expect(builtinCommands('codex').map((c) => c.name)).toContain('goal')
-    for (const agent of ['claude', 'cursor', 'opencode', 'gemini'] as const) expect(builtinCommands(agent).map((c) => c.name), agent).not.toContain('goal')
+    for (const agent of ['claude', 'cursor', 'opencode', 'qwen'] as const) expect(builtinCommands(agent).map((c) => c.name), agent).not.toContain('goal')
     expect(builtinCommands('codex').find((c) => c.name === 'goal')?.description).toMatch(/goal/i)
   })
 

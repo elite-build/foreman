@@ -29,8 +29,8 @@ describe('the record', () => {
   })
 
   it('leaves every other agent as it was', () => {
-    const gemini = staticCapabilities('gemini')!
-    expect(resolveCapabilities(gemini, { version: '9.0.0' }).sessions.concurrentChats).toEqual(gemini.sessions.concurrentChats)
+    const antigravity = staticCapabilities('antigravity')!
+    expect(resolveCapabilities(antigravity, { version: '9.0.0' }).sessions.concurrentChats).toEqual(antigravity.sessions.concurrentChats)
   })
 })
 

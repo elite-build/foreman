@@ -466,7 +466,7 @@ describe('keep running: pure parts', () => {
         { sessionId: 'a', workspace: 'nairobi', agent: 'claude', waiting: false },
         { sessionId: 'b', workspace: 'quito', agent: 'codex', waiting: true },
         // G1: Cursor and OpenCode can be kept now; a Chat agent still can't.
-        { sessionId: 'c', workspace: 'lisbon', agent: 'gemini', waiting: false },
+        { sessionId: 'c', workspace: 'lisbon', agent: 'qwen', waiting: false },
         { sessionId: 'd', workspace: 'oslo', agent: 'claude', waiting: false }
       ],
       (id) => id === 'a' || id === 'b',
@@ -477,7 +477,7 @@ describe('keep running: pure parts', () => {
       turns: 2,
       waiting: ['quito'],
       notKept: [
-        { workspace: 'lisbon', agent: 'Gemini CLI', reason: 'agent' },
+        { workspace: 'lisbon', agent: 'Qwen Code', reason: 'agent' },
         { workspace: 'oslo', agent: 'Claude Code', reason: 'started-before' }
       ]
     })

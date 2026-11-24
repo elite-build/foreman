@@ -173,7 +173,7 @@ export const TERMINAL_CAPS: Record<Capability, boolean> = { approvals: false, pl
 export const UNCONFIRMED: AuthSpec = { confirmed: false }
 
 export const FULL_AGENT_IDS = ['claude', 'codex', 'cursor', 'opencode'] as const
-export const CHAT_AGENT_IDS = ['gemini', 'qwen', 'kimi', 'droid', 'copilot', 'goose', 'deepseek', 'pi', 'commandcode', 'omp', 'antigravity'] as const
+export const CHAT_AGENT_IDS = ['qwen', 'kimi', 'droid', 'copilot', 'goose', 'deepseek', 'pi', 'commandcode', 'omp', 'antigravity'] as const
 export const TERMINAL_AGENT_IDS = [
   'aider', 'amp', 'crush', 'cline', 'kiro', 'kilocode', 'continue', 'devin', 'openhands', 'auggie', 'grok', 'vibe',
   'kimchi', 'muse', 'mimo', 'autohand', 'codewhale', 'primeagent'

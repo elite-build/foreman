@@ -46,7 +46,7 @@ describe('the target', () => {
   })
 
   it('isn’t there for agents no profile is written for, so Generate isn’t offered', () => {
-    for (const agent of ['cursor', 'opencode', 'gemini', 'nope']) expect(promptTargetFor(agent, 'claude-sonnet-5-5')).toBeUndefined()
+    for (const agent of ['cursor', 'opencode', 'antigravity', 'nope']) expect(promptTargetFor(agent, 'claude-sonnet-5-5')).toBeUndefined()
   })
 })
 

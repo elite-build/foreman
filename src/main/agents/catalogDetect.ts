@@ -69,7 +69,7 @@ export function findBinary(names: string[], deps: Pick<DetectDeps, 'path' | 'pla
 // ACP program discovery portions: Copyright 2026 Untrivial, Apache-2.0.
 // Adapted for Foreman's executable settings; see NOTICE and docs/licenses/acp-integration.txt.
 /**
- * G1: an agent whose ACP mode is a separate program (Pi's pi-acp, Antigravity's agy_acp_server), found
+ * G1: an agent whose ACP mode is a separate program (Pi's pi-acp), found
  * beside the agent's own CLI first (a fresh PATH search could pick another
  * installation), then on PATH. `cli` is the agent's binary when known (the configured path or the one on PATH).
  */

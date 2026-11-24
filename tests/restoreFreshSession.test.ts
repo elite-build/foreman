@@ -52,7 +52,7 @@ async function converse(h: Harness, ...texts: string[]) {
   return (await h.store.readChat(h.session.id)).filter((i): i is User => i.kind === 'user')
 }
 
-describe.each(['cursor', 'gemini'] as const)('Restore on %s (checkpoint-fresh-session)', (kind) => {
+describe.each(['cursor', 'qwen'] as const)('Restore on %s (checkpoint-fresh-session)', (kind) => {
   it('restores the files, drops the session and seeds the next turn with the chat up to the restore point', async () => {
     const requests = agent(kind)
     const h = await setupSessions()

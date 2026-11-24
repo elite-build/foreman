@@ -43,7 +43,7 @@ describe('parseAgentInstances', () => {
         null,
         'nope',
         { id: 'default', agent: 'claude', label: 'X', auth: 'cli' },
-        { id: 'ai-gemini01', agent: 'gemini', label: 'X', auth: 'cli' },
+        { id: 'ai-antigr01', agent: 'antigravity', label: 'X', auth: 'cli' },
         { id: 'ai-nolabel1', agent: 'claude', label: '  ', auth: 'cli' },
         { id: 'ai-longlab1', agent: 'claude', label: 'x'.repeat(41), auth: 'cli' },
         work,

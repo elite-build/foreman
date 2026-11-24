@@ -35,7 +35,6 @@ describe('ACP launch config per Chat agent', () => {
       })
     )
     expect(lines).toEqual({
-      gemini: '/opt/bin/gemini --experimental-acp',
       qwen: '/opt/bin/qwen --acp',
       kimi: '/opt/bin/kimi acp',
       droid: '/opt/bin/droid exec --output-format acp-daemon',
@@ -45,15 +44,15 @@ describe('ACP launch config per Chat agent', () => {
       pi: '/opt/bin/pi-acp',
       commandcode: '/opt/bin/cmd acp --skip-onboarding --no-auto-update --trust',
       omp: '/opt/bin/omp acp',
-      antigravity: '/opt/bin/agy_acp_server'
+      antigravity: '/opt/bin/agy acp'
     })
   })
 
   it('uses a configured path, except where ACP is a separate program; not found falls back to the bare name', () => {
-    const gemini = catalogAgent('gemini')!
-    expect(acpCommand(gemini, '/custom/gemini', posix([]))).toEqual({ file: '/custom/gemini', args: ['--experimental-acp'] })
+    const qwen = catalogAgent('qwen')!
+    expect(acpCommand(qwen, '/custom/qwen', posix([]))).toEqual({ file: '/custom/qwen', args: ['--acp'] })
     expect(acpCommand(catalogAgent('pi')!, '/custom/pi', posix(['/opt/bin/pi-acp'])).file).toBe('/opt/bin/pi-acp')
-    expect(acpCommand(gemini, undefined, posix([]))).toEqual({ file: 'gemini', args: ['--experimental-acp'] })
+    expect(acpCommand(qwen, undefined, posix([]))).toEqual({ file: 'qwen', args: ['--acp'] })
   })
 
   it('uses Command Code’s Windows name and starts npm shims through cmd.exe', () => {
@@ -72,16 +71,16 @@ describe('ACP launch config per Chat agent', () => {
   })
 
   it('reads executable paths per agent', () => {
-    const s = { claudeExecutablePath: '/c', codexExecutablePath: '', opencodeExecutablePath: '/o', agentPrefs: { gemini: { path: '/g' } } } as unknown as Settings
+    const s = { claudeExecutablePath: '/c', codexExecutablePath: '', opencodeExecutablePath: '/o', agentPrefs: { qwen: { path: '/q' } } } as unknown as Settings
     expect(executablePathFor(s, 'claude')).toBe('/c')
     expect(executablePathFor(s, 'codex')).toBeUndefined()
-    expect(executablePathFor(s, 'gemini')).toBe('/g')
+    expect(executablePathFor(s, 'qwen')).toBe('/q')
     expect(executablePathFor(s, 'cursor')).toBeUndefined()
   })
 
   it('builds the sign-in command from the agent’s login arguments; unconfirmed and Full agents have none here', () => {
     expect(catalogLoginCommand('kiro', undefined, posix(['/opt/bin/kiro-cli']))).toMatch(/kiro-cli["']? ["']?login["']?$/)
-    expect(catalogLoginCommand('gemini', '/my/gemini', posix([]))).toMatch(/\/my\/gemini["']?$/)
+    expect(catalogLoginCommand('antigravity', '/my/agy', posix([]))).toMatch(/\/my\/agy["']?$/)
     expect(() => catalogLoginCommand('kimchi', undefined, posix([]))).toThrow()
     expect(() => catalogLoginCommand('claude', undefined, posix([]))).toThrow()
     expect(() => catalogLoginCommand('aider', undefined, posix([]))).toThrow()
@@ -92,7 +91,7 @@ describe('ACP launch config per Chat agent', () => {
 
 function fakeAgent(log: { methods: string[] }) {
   return acp
-    .agent({ name: 'fake-gemini' })
+    .agent({ name: 'fake-qwen' })
     .onRequest(acp.methods.agent.initialize, () => {
       log.methods.push('initialize')
       return { protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: { loadSession: true, promptCapabilities: { image: true } } }
@@ -102,7 +101,7 @@ function fakeAgent(log: { methods: string[] }) {
       return { sessionId: 'g-1', modes: { currentModeId: 'default', availableModes: [{ id: 'default', name: 'Default' }, { id: 'plan', name: 'Plan' }] } }
     })
     .onRequest(acp.methods.agent.session.prompt, async ({ params, client }) => {
-      await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hi from Gemini' } } })
+      await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hi from Qwen' } } })
       return { stopReason: 'end_turn' }
     })
 }
@@ -142,18 +141,18 @@ function recorder() {
 describe('Chat agents over the generic ACP adapter', () => {
   it('runs a turn with the agent’s own config and remembers what it declared', async () => {
     const log = { methods: [] as string[] }
-    const driver = createAcpDriver(acpConfigFor(catalogAgent('gemini')!, { connect: inProcess(fakeAgent(log)) }))
+    const driver = createAcpDriver(acpConfigFor(catalogAgent('qwen')!, { connect: inProcess(fakeAgent(log)) }))
     const rec = recorder()
     await driver.createTurn(request(await tempDir()), rec.cb).run()
-    expect(rec.text()).toEqual(['Hi from Gemini'])
+    expect(rec.text()).toEqual(['Hi from Qwen'])
     expect(rec.results).toEqual([{ ok: true }])
     expect(log.methods).toEqual(['initialize', 'session/new'])
-    expect(acpReported().gemini).toMatchObject({ loadSession: true, images: true, modes: ['default', 'plan'] })
+    expect(acpReported().qwen).toMatchObject({ loadSession: true, images: true, modes: ['default', 'plan'] })
   })
 
   it('finds a real agent program on PATH and starts it with its ACP flag', async () => {
     const sdk = pathToFileURL(createRequire(import.meta.url).resolve('@agentclientprotocol/sdk/unstable')).href
-    const dir = await tempDir('foreman-gemini-bin-')
+    const dir = await tempDir('foreman-agy-bin-')
     const script = path.join(dir, 'agent.mjs')
     await writeFile(
       script,
@@ -172,17 +171,17 @@ acp.agent({ name: 'script' })
 `
     )
     const win = process.platform === 'win32'
-    const bin = path.join(dir, win ? 'gemini.cmd' : 'gemini')
+    const bin = path.join(dir, win ? 'agy.cmd' : 'agy')
     await writeFile(bin, win ? `@"${process.execPath}" "${script}" %*\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`)
     if (!win) await chmod(bin, 0o755)
     const launchEnv: LaunchEnv = { path: dir, platform: process.platform, pathExt: process.env.PATHEXT, exists: existsSync }
-    const driver = createAcpDriver(acpConfigFor(catalogAgent('gemini')!, { launchEnv }))
-    const cwd = await tempDir('foreman-gemini-cwd-')
+    const driver = createAcpDriver(acpConfigFor(catalogAgent('antigravity')!, { launchEnv }))
+    const cwd = await tempDir('foreman-agy-cwd-')
     const rec = recorder()
     await driver.createTurn(request(cwd, { ...(process.env as Record<string, string>), GEMINI_API_KEY: 'scoped' }), rec.cb).run()
     expect(rec.items.filter((i) => i.kind === "notice"), JSON.stringify(rec.items)).toEqual([])
     expect(rec.text()).toEqual(["key=scoped"])
-    expect(JSON.parse(await readFile(path.join(cwd, 'argv.json'), 'utf8'))).toEqual(['--experimental-acp'])
+    expect(JSON.parse(await readFile(path.join(cwd, 'argv.json'), 'utf8'))).toEqual(['acp'])
   }, 20_000)
 })
 
@@ -241,7 +240,7 @@ describe('Terminal agents', () => {
   it('refuses agents that aren’t installed, aren’t Terminal agents, or a workspace that can’t run them', async () => {
     const { host, spawned } = terminalHost({ files: [] })
     await expect(host.start('ws1', 'aider', 80, 24)).rejects.toThrow(/isn’t installed[\s\S]*aider\.chat/)
-    await expect(host.start('ws1', 'gemini', 80, 24)).rejects.toThrow('Unknown terminal agent')
+    await expect(host.start('ws1', 'qwen', 80, 24)).rejects.toThrow('Unknown terminal agent')
     await expect(terminalHost().host.start('frozen', 'aider', 80, 24)).rejects.toThrow('frozen')
     expect(spawned).toEqual([])
   })

@@ -1,9 +1,9 @@
-// G1: ACP launch details (Droid's --settings overlay, Pi's and Antigravity's
-// separate ACP programs) and ACP session modes (an agent's declared plan mode drives the Plan chip). Every agent here
-// is a fake: no real Droid, pi-acp or agy_acp_server ran, so these prove Foreman's side only.
+// G1: ACP launch details (Droid's --settings overlay, Pi's separate ACP program, Antigravity's `agy acp` and its
+// Gemini API key) and ACP session modes (an agent's declared plan mode drives the Plan chip). Every agent here
+// is a fake: no real Droid, pi-acp or agy ran, so these prove Foreman's side only.
 import * as acp from '@agentclientprotocol/sdk/unstable'
-import { existsSync, realpathSync } from 'node:fs'
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { resolveCapabilities } from '../src/shared/agentCapabilities'
@@ -13,8 +13,7 @@ import { createAcpDriver, listAcpSession, sessionModes, type AcpConnector } from
 import {
   acpCommand,
   acpConfigFor,
-  agyShouldAuthenticate,
-  antigravityEnv,
+  agyUsesApiKey,
   droidLaunch,
   droidSettings,
   expectedAgentNote,
@@ -155,18 +154,17 @@ describe('G1 · Droid’s --settings overlay', () => {
   })
 })
 
-describe('G1 · separate ACP programs (Pi, Antigravity)', () => {
+describe('G1 · separate ACP programs (Pi)', () => {
   it('finds the ACP program beside the agent’s own CLI before PATH', () => {
-    const agy = catalogAgent('antigravity')!
-    const files = ['/apps/agy/agy', '/apps/agy/agy_acp_server', '/opt/bin/agy_acp_server', '/opt/bin/agy']
-    expect(acpCommand(agy, '/apps/agy/agy', posix(files)).file).toBe('/apps/agy/agy_acp_server')
-    // Without a configured path, beside the agy found on PATH.
-    expect(acpCommand(agy, undefined, posix(['/opt/bin/agy', '/opt/bin/agy_acp_server', '/usr/bin/agy_acp_server'])).file).toBe('/opt/bin/agy_acp_server')
-    expect(findAcpProgram(agy, null, posix(['/usr/bin/agy_acp_server']))).toBe('/usr/bin/agy_acp_server')
-    // Linux needs the empty --uid flag; Windows looks for the .exe.
-    expect(acpCommand(agy, undefined, { ...posix(['/opt/bin/agy_acp_server']), platform: 'linux' }).args).toEqual(['--uid='])
-    const win: LaunchEnv = { path: 'C:\\agy', platform: 'win32', pathExt: '.EXE;.CMD', exists: (f) => f === 'C:\\agy\\agy_acp_server.exe' }
-    expect(acpCommand(agy, undefined, win).file).toBe('C:\\agy\\agy_acp_server.exe')
+    const pi = catalogAgent('pi')!
+    const files = ['/apps/pi/pi', '/apps/pi/pi-acp', '/opt/bin/pi-acp', '/opt/bin/pi']
+    expect(acpCommand(pi, '/apps/pi/pi', posix(files))).toEqual({ file: '/apps/pi/pi-acp', args: [] })
+    // Without a configured path, beside the pi found on PATH.
+    expect(acpCommand(pi, undefined, posix(['/opt/bin/pi', '/opt/bin/pi-acp', '/usr/bin/pi-acp'])).file).toBe('/opt/bin/pi-acp')
+    expect(findAcpProgram(pi, null, posix(['/usr/bin/pi-acp']))).toBe('/usr/bin/pi-acp')
+    // Windows: npm's .cmd shim, started through cmd.exe.
+    const win: LaunchEnv = { path: 'C:\\pi', platform: 'win32', pathExt: '.EXE;.CMD', exists: (f) => f === 'C:\\pi\\pi-acp.cmd' }
+    expect(acpCommand(pi, undefined, win).args).toEqual(['/d', '/c', 'C:\\pi\\pi-acp.cmd'])
   })
 
   it('reports a missing ACP program separately from the agent itself', async () => {
@@ -176,7 +174,8 @@ describe('G1 · separate ACP programs (Pi, Antigravity)', () => {
     expect(pi.acpProgram!.path).toBeUndefined()
     const found = await detectAgent(catalogAgent('pi')!, { ...deps, exists: (f) => f === '/opt/bin/pi' || f === '/opt/bin/pi-acp' })
     expect(found.acpProgram!.path).toBe('/opt/bin/pi-acp')
-    expect((await detectAgent(catalogAgent('gemini')!, { ...deps, exists: (f) => f === '/opt/bin/gemini' })).acpProgram).toBeUndefined()
+    // Antigravity's ACP is a mode of agy itself: nothing separate to report.
+    expect((await detectAgent(catalogAgent('antigravity')!, { ...deps, exists: (f) => f === '/opt/bin/agy' })).acpProgram).toBeUndefined()
   })
 
   it('gives pi-acp’s daemon a socket folder per workspace, outside the repo', () => {
@@ -213,50 +212,33 @@ describe('G1 · separate ACP programs (Pi, Antigravity)', () => {
     expect(expectedAgentNote(pi, { name: '@victor-software-house/pi-acp', version: '0.17.1' })).toBeUndefined()
     expect(expectedAgentNote(pi, { name: '@victor-software-house/pi-acp', version: '0.16.9' })).toMatch(/older than 0\.17\.1/)
     expect(expectedAgentNote(pi, { name: 'something-else', version: '9.9.9' })).toMatch(/expected the @victor-software-house\/pi-acp program/)
-    expect(expectedAgentNote(catalogAgent('gemini')!, { name: 'x', version: '0' })).toBeUndefined()
+    expect(expectedAgentNote(catalogAgent('qwen')!, { name: 'x', version: '0' })).toBeUndefined()
+    const agy = catalogAgent('antigravity')!
+    expect(expectedAgentNote(agy, { name: 'Antigravity ACP Server', version: '1.5.16' })).toBeUndefined()
+    expect(expectedAgentNote(agy, { name: 'antigravity-acp', version: '1.5.16' })).toMatch(/expected the Antigravity ACP Server program/)
     const log = newLog()
     const rec = recorder()
-    const config = acpConfigFor(catalogAgent('antigravity')!, { connect: inProcess(modalAgent(log, { info: { name: 'antigravity-acp', version: '1.2.0' } })), launchEnv: posix([]) })
+    const config = acpConfigFor(agy, { connect: inProcess(modalAgent(log, { info: { name: 'Antigravity ACP Server', version: '1.4.9' } })), launchEnv: posix([]) })
     await createAcpDriver(config).createTurn(request(await tempDir()), rec.cb).run()
-    expect(rec.notices()).toEqual([expect.stringMatching(/antigravity-acp 1\.2\.0 is older than 1\.3\.0/)])
+    expect(rec.notices()).toEqual([expect.stringMatching(/Antigravity ACP Server 1\.4\.9 is older than 1\.5\.0/)])
     expect(rec.results).toEqual([{ ok: true }])
   })
+})
 
-  it('points Antigravity’s server at its helper beside its real location, and never disables workspace trust', async () => {
-    const dir = await tempDir('foreman-g1-agy-')
-    const server = path.join(dir, process.platform === 'win32' ? 'agy_acp_server.exe' : 'agy_acp_server')
-    const helper = path.join(dir, process.platform === 'win32' ? 'localharness_external.exe' : 'localharness_external')
-    await writeFile(server, '')
-    expect(antigravityEnv(server, {})).toBeUndefined()
-    await writeFile(helper, '')
-    // The same file, however the path spells it (a Windows temporary folder may have a short 8.3 name).
-    expect(Object.keys(antigravityEnv(server, {}) ?? {})).toEqual(['ANTIGRAVITY_HARNESS_PATH'])
-    expect(realpathSync.native(antigravityEnv(server, {})!.ANTIGRAVITY_HARNESS_PATH)).toBe(await realpath(helper))
-    expect(antigravityEnv(server, { ANTIGRAVITY_HARNESS_PATH: '/mine' })).toBeUndefined()
-    expect(JSON.stringify(antigravityEnv(server, {}))).not.toContain('WORKSPACE_TRUST')
-  })
-
-  it('reuses an existing Google sign-in for Antigravity only when nothing else is set up', async () => {
-    const home = await tempDir('foreman-g1-gemini-')
-    const offered = { authMethods: [{ id: 'oauth-personal', name: 'Log in with Google' }] }
-    expect(agyShouldAuthenticate(offered, home)).toBe(false)
-    await writeFile(path.join(home, 'google_accounts.json'), JSON.stringify({ active: 'me@example.com' }))
-    expect(agyShouldAuthenticate(offered, home)).toBe(true)
-    expect(agyShouldAuthenticate({ authMethods: [] }, home)).toBe(false)
-    await mkdir(path.join(home, 'antigravity-acp'))
-    await writeFile(path.join(home, 'antigravity-acp', 'settings.json'), JSON.stringify({ auth: { type: 'oauth-personal' } }))
-    expect(agyShouldAuthenticate(offered, home)).toBe(false)
-  })
-
-  it('calls authenticate before the session when it should, and sends the standing instructions as plain text', async () => {
-    const home = await tempDir('foreman-g1-gemini-')
-    await writeFile(path.join(home, 'google_accounts.json'), JSON.stringify({ active: 'me@example.com' }))
-    const methods: string[] = []
-    const prompts: acp.ContentBlock[][] = []
-    const agent = () =>
+describe('G1 · Antigravity through `agy acp`', () => {
+  /** A fake `agy acp` that offers its sign-in methods and logs which one Foreman selects. */
+  function agyAgent(methods: string[], prompts: acp.ContentBlock[][] = []) {
+    return () =>
       acp
         .agent({ name: 'agy' })
-        .onRequest(acp.methods.agent.initialize, () => ({ protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: {}, authMethods: [{ id: 'oauth-personal', name: 'Google' }] }))
+        .onRequest(acp.methods.agent.initialize, () => ({
+          protocolVersion: acp.PROTOCOL_VERSION,
+          agentCapabilities: {},
+          authMethods: [
+            { id: 'oauth-personal', name: 'Log in with Google' },
+            { id: 'gemini-api-key', name: 'Use Gemini API key' }
+          ]
+        }))
         .onRequest(acp.methods.agent.authenticate, ({ params }) => {
           methods.push(`authenticate:${params.methodId}`)
           return {}
@@ -269,12 +251,57 @@ describe('G1 · separate ACP programs (Pi, Antigravity)', () => {
           prompts.push(params.prompt)
           return { stopReason: 'end_turn' }
         })
-    const config = acpConfigFor(catalogAgent('antigravity')!, { connect: inProcess(agent), launchEnv: posix([]), home })
+  }
+
+  it('launches agy itself with `acp`: the configured path, else agy on PATH', () => {
+    const agy = catalogAgent('antigravity')!
+    expect(acpCommand(agy, '/apps/agy/agy', posix([]))).toEqual({ file: '/apps/agy/agy', args: ['acp'] })
+    expect(acpCommand(agy, undefined, posix(['/opt/bin/agy']))).toEqual({ file: '/opt/bin/agy', args: ['acp'] })
+    // An old agy_acp_server beside it isn't looked for any more, and Linux takes no extra arguments.
+    expect(acpCommand(agy, undefined, posix(['/opt/bin/agy', '/opt/bin/agy_acp_server'])).file).toBe('/opt/bin/agy')
+    expect(findAcpProgram(agy, '/opt/bin/agy', posix(['/opt/bin/agy', '/opt/bin/agy_acp_server']))).toBeNull()
+    expect(acpCommand(agy, undefined, { ...posix(['/opt/bin/agy']), platform: 'linux' })).toEqual({ file: '/opt/bin/agy', args: ['acp'] })
+    // Not found: its bare name, so the spawn fails as not installed.
+    expect(acpCommand(agy, undefined, posix([]))).toEqual({ file: 'agy', args: ['acp'] })
+    const win: LaunchEnv = { path: 'C:\\agy', platform: 'win32', pathExt: '.EXE;.CMD', exists: (f) => f === 'C:\\agy\\agy.exe' }
+    expect(acpCommand(agy, undefined, win)).toEqual({ file: 'C:\\agy\\agy.exe', args: ['acp'] })
+  })
+
+  it('selects the Gemini API key method only with a key in the environment and the method offered', () => {
+    const offered = { authMethods: [{ id: 'oauth-personal', name: 'Log in with Google' }, { id: 'gemini-api-key', name: 'Use Gemini API key' }] }
+    expect(agyUsesApiKey(offered, { GEMINI_API_KEY: 'AIza-key' })).toBe(true)
+    expect(agyUsesApiKey(offered, { GEMINI_API_KEY: '  ' })).toBe(false)
+    expect(agyUsesApiKey(offered, { GEMINI_API_KEY: '' })).toBe(false)
+    expect(agyUsesApiKey(offered, {})).toBe(false)
+    // Another Google variable doesn't count.
+    expect(agyUsesApiKey(offered, { GOOGLE_API_KEY: 'AIza-key' })).toBe(false)
+    expect(agyUsesApiKey({ authMethods: [{ id: 'oauth-personal', name: 'Log in with Google' }] }, { GEMINI_API_KEY: 'AIza-key' })).toBe(false)
+    expect(agyUsesApiKey({ authMethods: [] }, { GEMINI_API_KEY: 'AIza-key' })).toBe(false)
+    expect(agyUsesApiKey({}, { GEMINI_API_KEY: 'AIza-key' })).toBe(false)
+  })
+
+  it('with a Gemini API key, selects it before the session, and sends the standing instructions as plain text', async () => {
+    const methods: string[] = []
+    const prompts: acp.ContentBlock[][] = []
+    const spawned = { command: [] as { file: string; args: string[]; env: Record<string, string> }[] }
+    const config = acpConfigFor(catalogAgent('antigravity')!, { connect: inProcess(agyAgent(methods, prompts), spawned), launchEnv: posix(['/opt/bin/agy']) })
     const rec = recorder()
-    await createAcpDriver(config).createTurn(request(await tempDir(), { env: { GEMINI_HOME: home }, systemPromptAppend: 'Be brief.' }), rec.cb).run()
-    expect(methods).toEqual(['authenticate:oauth-personal', 'session/new'])
+    await createAcpDriver(config).createTurn(request(await tempDir(), { env: { GEMINI_API_KEY: 'AIza-key' }, systemPromptAppend: 'Be brief.' }), rec.cb).run()
+    expect(spawned.command.map((c) => [c.file, c.args])).toEqual([['/opt/bin/agy', ['acp']]])
+    expect(methods).toEqual(['authenticate:gemini-api-key', 'session/new'])
     expect(prompts[0][0]).toEqual({ type: 'text', text: expect.stringContaining('<foreman_standing_instructions>\nBe brief.\n</foreman_standing_instructions>') })
     expect(prompts[0][0]).not.toHaveProperty('annotations')
+    expect(rec.notices()).toEqual([])
+    expect(rec.results).toEqual([{ ok: true }])
+  })
+
+  it('in Login mode (no key) selects nothing: agy reuses its own saved sign-in', async () => {
+    const methods: string[] = []
+    const config = acpConfigFor(catalogAgent('antigravity')!, { connect: inProcess(agyAgent(methods)), launchEnv: posix(['/opt/bin/agy']) })
+    const rec = recorder()
+    await createAcpDriver(config).createTurn(request(await tempDir()), rec.cb).run()
+    expect(methods).toEqual(['session/new'])
+    expect(rec.results).toEqual([{ ok: true }])
   })
 })
 
@@ -290,16 +317,16 @@ describe('G1 · ACP session modes and the Plan chip', () => {
     const modes = [{ id: 'plan', name: 'Plan' }]
     const declare = (id: string) => resolveCapabilities(staticCapabilities(id)!, acpPlanMode(modes) ? { planMode: true } : undefined)
     // The chips are read from the record with what the agent declared folded in.
-    expect(capsOf(staticCapabilities('gemini')!)).toMatchObject({ plan: false, steer: false })
-    expect(capsOf(declare('gemini'))).toMatchObject({ plan: true, steer: false })
+    expect(capsOf(staticCapabilities('qwen')!)).toMatchObject({ plan: false, steer: false })
+    expect(capsOf(declare('qwen'))).toMatchObject({ plan: true, steer: false })
     // OpenCode's plan agent is in its record, declared or not.
     expect(capsOf(staticCapabilities('opencode')!).plan).toBe(true)
     // Only an agent whose record says it declares a plan mode takes one from what it declared.
     expect(capsOf(declare('cursor')).plan).toBe(false)
     expect(capsOf(declare('claude')).plan).toBe(true)
     // What it declared is folded into the record the control reads; without it the chip stays, disabled, saying why.
-    expect(planControl(declare('gemini'), { planMode: true })).toBe('on')
-    expect(planControl(staticCapabilities('gemini'), { planMode: false })).toBe('unavailable')
+    expect(planControl(declare('qwen'), { planMode: true })).toBe('on')
+    expect(planControl(staticCapabilities('qwen'), { planMode: false })).toBe('unavailable')
   })
 
   it('reads modes from `modes` and from a "mode" config option', () => {
@@ -312,7 +339,7 @@ describe('G1 · ACP session modes and the Plan chip', () => {
   it('switches into the declared plan mode before prompting (session/set_mode)', async () => {
     const log = newLog()
     const rec = recorder()
-    await createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) })
+    await createAcpDriver({ kind: 'qwen', label: 'Qwen Code', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) })
       .createTurn(request(await tempDir(), { planMode: true }), rec.cb)
       .run()
     expect(log.methods).toEqual(['initialize', 'session/new', 'set_mode:plan'])
@@ -323,7 +350,7 @@ describe('G1 · ACP session modes and the Plan chip', () => {
   it('switches through the "mode" config option when the agent lists modes that way', async () => {
     const log = newLog()
     const rec = recorder()
-    await createAcpDriver({ kind: 'gemini', label: 'Gemini CLI', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log, { configOption: true })) })
+    await createAcpDriver({ kind: 'qwen', label: 'Qwen Code', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log, { configOption: true })) })
       .createTurn(request(await tempDir(), { planMode: true }), rec.cb)
       .run()
     expect(log.methods).toContain('set_config:mode=plan')
@@ -333,13 +360,13 @@ describe('G1 · ACP session modes and the Plan chip', () => {
   it('leaves the mode alone without Plan, and the chip follows when the agent leaves plan mode itself', async () => {
     const log = newLog()
     const rec = recorder()
-    await createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) })
+    await createAcpDriver({ kind: 'qwen', label: 'Qwen Code', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) })
       .createTurn(request(await tempDir()), rec.cb)
       .run()
     expect(log.methods).toEqual(['initialize', 'session/new'])
     const log2 = newLog()
     const rec2 = recorder()
-    await createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log2, { leavePlanOnPrompt: true })) })
+    await createAcpDriver({ kind: 'qwen', label: 'Qwen Code', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log2, { leavePlanOnPrompt: true })) })
       .createTurn(request(await tempDir(), { planMode: true }), rec2.cb)
       .run()
     expect(rec2.plan).toEqual([false])
@@ -348,23 +375,23 @@ describe('G1 · ACP session modes and the Plan chip', () => {
   it('doesn’t start a Plan turn it can’t put in plan mode', async () => {
     const noPlan = newLog()
     const rec = recorder()
-    await createAcpDriver({ kind: 'gemini', label: 'Gemini CLI', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(noPlan, { modes: [{ id: 'default', name: 'Default' }] })) })
+    await createAcpDriver({ kind: 'qwen', label: 'Qwen Code', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(noPlan, { modes: [{ id: 'default', name: 'Default' }] })) })
       .createTurn(request(await tempDir(), { planMode: true }), rec.cb)
       .run()
     expect(noPlan.prompts).toEqual([])
     expect(rec.results).toEqual([{ ok: false, error: expect.stringMatching(/doesn’t offer a plan mode/) }])
     const refused = newLog()
     const rec2 = recorder()
-    await createAcpDriver({ kind: 'gemini', label: 'Gemini CLI', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(refused, { refuseMode: true })) })
+    await createAcpDriver({ kind: 'qwen', label: 'Qwen Code', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(refused, { refuseMode: true })) })
       .createTurn(request(await tempDir(), { planMode: true }), rec2.cb)
       .run()
     expect(refused.prompts).toEqual([])
-    expect(rec2.results).toEqual([{ ok: false, error: expect.stringMatching(/Couldn’t switch Gemini CLI to its plan mode/) }])
+    expect(rec2.results).toEqual([{ ok: false, error: expect.stringMatching(/Couldn’t switch Qwen Code to its plan mode/) }])
   })
 
   it('lists the declared modes with the models', async () => {
     const log = newLog()
-    const listed = await listAcpSession({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) }, { cwd: await tempDir(), env: {} })
+    const listed = await listAcpSession({ kind: 'qwen', label: 'Qwen Code', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) }, { cwd: await tempDir(), env: {} })
     expect(listed.modes).toEqual([
       { id: 'build', name: 'Build' },
       { id: 'plan', name: 'Plan' }
