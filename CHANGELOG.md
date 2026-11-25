@@ -2,6 +2,27 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made. Each release's sections come in the order a reader needs them: **Before you update** (anything to do or know first), **Security**, **Fixed**, **Added**, **Changed**, and **Development** (for contributors only, left out of the release's notes in the app). Releases up to 1.2.12 list them as Added, Changed, Fixed, Security and Development.
 
+## 1.2.14 (2026-11-25)
+
+### Fixed
+
+- **Save** in the file viewer no longer overwrites changes the agent made after you opened the file. It now stops and offers **Merge both** (when your edits and the agent's are on different lines), **Use the agent's** or **Keep mine**. ([#267](https://github.com/elite-build/foreman/pull/267))
+
+### Added
+
+- The file viewer colours code and marks the lines this branch changed. **Previous change** and **Next change** step through them, and with the caret on a change you see the lines it replaced and can **Revert this change**. ([#267](https://github.com/elite-build/foreman/pull/267))
+- Select lines in the file viewer to **Explain**, **Change this**, **Ask…** or **Comment**, as in **Changes**. Review comments show on their lines. ([#267](https://github.com/elite-build/foreman/pull/267))
+
+### Changed
+
+- With no unsaved edits, the file viewer shows the agent's edits to the open file as they happen. Before, it kept showing the file as it was when you opened it. ([#267](https://github.com/elite-build/foreman/pull/267))
+
+### Development
+
+- `AGENTS.md` holds rules only; its tables of areas, environment variables and commands moved to `docs/map.md`. ([#266](https://github.com/elite-build/foreman/pull/266))
+- `AGENTS.md` says how agents read less (search then read a range, which files never to read whole, when to start a fresh chat), and the AI employees, agents and flows guides open with a **Where to look** table. ([#266](https://github.com/elite-build/foreman/pull/266))
+- `CodeEditor` gains `changes`, `tokenLines`, seven token kinds and an `info` mark tone; the screenshot fixture gains `file-view`, `file-view-peek` and `file-view-select`. ([#267](https://github.com/elite-build/foreman/pull/267))
+
 ## 1.2.13 (2026-11-24)
 
 ### Before you update
