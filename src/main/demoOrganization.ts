@@ -16,6 +16,7 @@ import { programManagerDefinition } from '../shared/employeeTeams'
 import { defaultEmployee, employeePath, employeePromptFile, employeePromptPath, parseEmployee, serializeEmployee, type EmployeeDefinition, type EmployeeRecord } from '../shared/employees'
 import type { AccountLimits } from '../shared/limits'
 import type { RepoIcon, Repo, Workspace } from '../shared/types'
+import { DEMO_PARTS, type DemoPart } from '../shared/scenarios'
 import { MEMORY_REPO, ORG_ID, type OrganizationSeed } from './screensOrganization'
 
 const BILLING_REPO = 'repo-billing'
@@ -55,9 +56,26 @@ export async function hire(seed: OrganizationSeed, orgId: string, memory: string
   return records
 }
 
-export async function seedDemoOrganization(seed: OrganizationSeed): Promise<void> {
+/** The parts a scenario asked for (shared/scenarios.ts); the demo itself seeds every one. */
+export async function seedDemoOrganization(seed: OrganizationSeed, parts: readonly DemoPart[] = DEMO_PARTS): Promise<void> {
+  if (parts.includes('team')) await seedTeam(seed)
+  // Single sign-on goes on: the copy and the guide start again when the app opens (projects.recover), so its channel moves.
+  if (parts.includes('channels')) {
+    const db = seed.store.db as ForemanDb
+    const sso = db.project('proj-sso')
+    if (sso) {
+      sso.parts = { ...sso.parts, copy: { state: 'pending', round: 0 }, guide: { state: 'pending', round: 0 } }
+      sso.steps = sso.steps.filter((s) => !(s.kind === 'part' && (s.partId === 'copy' || s.partId === 'guide')))
+      db.putProject(sso)
+    }
+  }
+  if (parts.includes('lumen')) await seedLumen(seed)
+  if (parts.includes('usage')) seedUsage(seed)
+}
+
+/** Acme's three more repositories with a workspace each, and six more employees, Priya its program manager. */
+async function seedTeam(seed: OrganizationSeed): Promise<void> {
   const { store, minutesAgo: at } = seed
-  const db = store.db as ForemanDb
   const memory = store.state.repos.find((r) => r.id === MEMORY_REPO)!.rootPath
 
   // ---- three more code repositories, each with a workspace ----
@@ -144,18 +162,11 @@ export async function seedDemoOrganization(seed: OrganizationSeed): Promise<void
   org.programManagerId = priya.definition.id
   // Its own icon on the rail (Settings → Spaces lets the person change it).
   org.icon = DEMO_ORGANIZATION_ICON
+}
 
-  // ---- single sign-on goes on: the copy and the guide start again when the demo opens ----
-  const sso = db.project('proj-sso')
-  if (sso) {
-    sso.parts = { ...sso.parts, copy: { state: 'pending', round: 0 }, guide: { state: 'pending', round: 0 } }
-    sso.steps = sso.steps.filter((s) => !(s.kind === 'part' && (s.partId === 'copy' || s.partId === 'guide')))
-    db.putProject(sso)
-  }
-
-  await seedLumen(seed)
-
-  // ---- what the accounts last said about their usage (Settings → Usage) ----
+/** What the accounts last said about their usage (Settings → Usage). */
+function seedUsage(seed: OrganizationSeed): void {
+  const { store, minutesAgo: at } = seed
   const inMinutes = (minutes: number) => at(-minutes)
   const limits: AccountLimits[] = [
     {

@@ -42,10 +42,10 @@ import type { TrayAction, TrayView } from '../shared/attention'
 import { mainT, setSystemLanguages } from './i18n'
 import { frameMayNavigate, PREVIEW_SCHEME } from '../shared/preview'
 import { VISIBILITY_EVENTS, WindowVisibility } from './windowVisibility'
-import { blockNetwork, runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
-import { claimDemoFolder, DEMO, demoDataDir, DEMO_RESET, demoFolder, seedDemo } from './demo'
+import { blockNetwork, keptFixture, runScreens, screenshotRoot, SCREENSHOTS, screensScenario, screensSwitches, seedScreens, type ScreensFixture } from './screenshots'
+import { claimDemoFolder, DEMO, demoDataDir, DEMO_RESET, demoFolder, demoScenario, keptDemoDiffers, seedDemo } from './demo'
 import { registerDemoAgents, startDemoRun } from './demoRun'
-import { bindDemoEmployees, startDemoDirector } from './demoEmployees'
+import { bindDemoEmployees, playDemoChannels, startDemoDirector } from './demoEmployees'
 import { configureReplay } from './agents/fixtures/replayDriver'
 import { perf } from './perf'
 import { RemoteRouter, type WindowRoute } from './remote/router'
@@ -77,6 +77,11 @@ protocol.registerSchemesAsPrivileged([{ scheme: PREVIEW_SCHEME, privileges: { st
 // Dev-only screenshot run (FOREMAN_SCREENSHOTS=1, scripts/screenshots.mjs): a throwaway data folder and no network.
 const screensRoot = SCREENSHOTS ? screenshotRoot() : null
 if (screensRoot) screensSwitches((name, value) => app.commandLine.appendSwitch(name, value))
+// `npm run screens -- --scenario <name>` (shared/scenarios.ts): what the fixture adds. With the `channels` part the
+// demo's channel stories are played to a standstill before the screens are taken, by the demo's scripted employees.
+const screensWith = screensRoot ? screensScenario() : null
+const screensPlay = Boolean(screensWith?.parts.includes('channels'))
+if (screensPlay) registerDemoAgents()
 // Started with --headless (docs/server.md, "Headless"): every service runs and no window opens until one is asked for
 // (the tray, a foreman:// link, `foreman run --open`, starting Foreman again). A screenshot run needs its window.
 let headless = !screensRoot && parseHeadless(process.argv)
@@ -89,13 +94,20 @@ let service = !screensRoot && parseService(process.argv)
 if (parseHeadless(process.argv)) app.commandLine.removeSwitch('headless')
 // Dev-only demo (`npm run dev demo`, main/demo.ts): the screenshot fixture in a data folder kept between launches, and
 // no network. The folder is claimed (or reset) here, before Electron opens files in it; it is seeded once ready.
-const demoRoot = DEMO && !screensRoot && !app.isPackaged ? demoFolder(app.getPath('appData')) : null
+// What it starts with is a scenario (shared/scenarios.ts): `full` unless `npm run dev demo <scenario>` names another.
+const demoWith = DEMO && !screensRoot && !app.isPackaged ? demoScenario() : null
+const demoRoot = demoWith ? demoFolder(app.getPath('appData'), demoWith.name) : null
 let demoSeed = false
-if (demoRoot) {
+// The demo's first window opens on its scenario's screen, once.
+let demoOpen: ScreensFixture | null = null
+if (demoRoot && demoWith) {
   try {
     const claimed = claimDemoFolder(demoRoot, DEMO_RESET)
     demoSeed = claimed === 'seed'
     if (claimed === 'outdated') console.log('[demo] This demo was seeded from an earlier version of the demo data. `npm run dev demo reset` seeds the current one (and deletes everything in its folder).')
+    const differs = claimed === 'kept' ? keptDemoDiffers(demoRoot, demoWith.parts) : null
+    if (differs) console.log(`[demo] This demo was seeded with ${differs.seeded.join(', ') || 'the fixture alone'}, not ${differs.asked.join(', ') || 'the fixture alone'}. Add \`reset\` to seed what you asked for (it deletes everything in its folder).`)
+    if (demoWith.open) demoOpen = keptFixture()
   } catch (err) {
     console.error(`[demo] ${err instanceof Error ? err.message : String(err)}`)
     process.exit(1)
@@ -104,7 +116,7 @@ if (demoRoot) {
   // Agents answer from a script (main/demoRun.ts, main/demoEmployees.ts), so the demo's flow runs and its employees'
   // work move with no model behind them.
   registerDemoAgents({ replayRoot: app.getAppPath() })
-  console.log(`[demo] ${demoSeed ? 'Seeding' : 'Using'} the demo data in ${demoRoot}`)
+  console.log(`[demo] ${demoSeed ? 'Seeding' : 'Using'} the demo data in ${demoRoot}${demoWith.name === 'full' ? '' : ` (${demoWith.name}: ${demoWith.parts.join(', ') || 'the fixture alone'})`}`)
 }
 // Separate data folder for development and tests (SWITCHYARD_DATA_DIR is the older name). --data-dir= is how the background
 // service starts a Foreman installed from one with its own folder, as Task Scheduler can't set environment variables.
@@ -392,8 +404,11 @@ function createWindow(): BrowserWindow {
     askToQuit()
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL)
-  else void win.loadFile(path.join(here, '../renderer/index.html'))
+  // The demo's first window says which screen to open on (renderer/src/main.tsx, renderer/src/screens.ts).
+  const open = demoOpen && demoWith?.open ? { open: demoWith.open, fixture: JSON.stringify(demoOpen) } : null
+  demoOpen = null
+  if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(open ? `${process.env.ELECTRON_RENDERER_URL}?${new URLSearchParams(open)}` : process.env.ELECTRON_RENDERER_URL)
+  else void win.loadFile(path.join(here, '../renderer/index.html'), open ? { query: open } : undefined)
   return win
 }
 
@@ -471,12 +486,12 @@ async function main(): Promise<void> {
   // Same id as the shortcut the Windows installer makes (build.appId), so taskbar pins and
   // notifications show Foreman's name and icon instead of Electron's.
   if (process.platform === 'win32' && app.isPackaged) app.setAppUserModelId('dev.foreman.app')
-  const fixture = screensRoot ? await seedScreens(screensRoot, app.getPath('userData')) : null
+  const fixture = screensRoot ? await seedScreens(screensRoot, app.getPath('userData'), {}, { parts: screensWith?.parts ?? [] }) : null
   // The demo shows every screen the screenshots do, Flows included, with the computer's own shell in its terminals.
   // A seeding that fails says why and quits; the next launch starts it again.
-  if (demoRoot && demoSeed) {
+  if (demoRoot && demoWith && demoSeed) {
     try {
-      await seedDemo(demoRoot, (root, dataDir) => seedScreens(root, dataDir, { flows: true, terminalShell: 'auto' }, { demo: true }))
+      await seedDemo(demoRoot, (root, dataDir) => seedScreens(root, dataDir, { flows: true, terminalShell: 'auto' }, { parts: demoWith.parts }), demoWith.parts)
     } catch (err) {
       console.error(`[demo] Could not seed the demo data: ${err instanceof Error ? err.message : String(err)}`)
       return app.exit(1)
@@ -630,6 +645,8 @@ async function main(): Promise<void> {
       thermal: process.platform === 'darwin' ? powerMonitor.getCurrentThermalState() : null
     }),
     metrics: () => {
+      // A screenshot run shows the same numbers every time, so two runs of one screen compare equal.
+      if (screensRoot) return { cpuPercent: 4, memoryMb: 512 }
       const all = app.getAppMetrics()
       return {
         cpuPercent: Math.round(all.reduce((n, m) => n + m.cpu.percentCPUUsage, 0)),
@@ -673,8 +690,8 @@ async function main(): Promise<void> {
       app.quit()
     },
     // O10: start Foreman again as the background agent host (detached, so it outlives this process). Not in the demo:
-    // its turns stay here, with the scripted agents.
-    agentHost: demoRoot ? undefined : {
+    // its turns stay here, with the scripted agents. Nor in a screenshot run that plays the demo's channels.
+    agentHost: demoRoot || screensPlay ? undefined : {
       dir: hostDir(app.getPath('userData')),
       spawn: () => {
         const env = { ...process.env }
@@ -785,10 +802,29 @@ async function main(): Promise<void> {
     // The organization's memory repository and employees are read first (as a launch does further down), so its screens
     // show them rather than their loading state.
     await screensCore.memory.start().then(() => screensCore.employees.refreshAll()).catch((err: unknown) => console.error('Memory:', err))
+    // A scenario with the channels: the employees' work starts as a launch starts it, the demo's stories are played until
+    // nothing moves (main/demoEmployees.ts), and then nothing more runs. A play that fails ends the run: its screens
+    // would show some other state.
+    if (screensPlay) {
+      try {
+        bindDemoEmployees(screensCore, store)
+        screensCore.employeeWork.start(1_000)
+        screensCore.markEmployeeChats()
+        await screensCore.projects.recover()
+        fixture.channels = await playDemoChannels(screensCore, store)
+        screensCore.employeeWork.stopTimer()
+        // The page's clock stays where the fixture pinned it, just after the seed: what the play wrote is later than
+        // that, so it reads "just now" in every run however long the play took, and the fixture's own times read as ever.
+      } catch (err) {
+        console.error(`[screens] Could not play the channels: ${err instanceof Error ? err.message : String(err)}`)
+        return app.exit(1)
+      }
+    }
     return void runScreens({
       win,
       core: screensCore,
       fixture,
+      scenario: screensWith,
       page: process.env.ELECTRON_RENDERER_URL ? { url: process.env.ELECTRON_RENDERER_URL } : { file: path.join(here, '../renderer/index.html') },
       out: process.env.FOREMAN_SCREENSHOTS_OUT || path.join(screensRoot, 'out'),
       // Its data is thrown away: stop terminals and agents, then exit without the Quit sheet's checks. A shutdown that
@@ -999,10 +1035,9 @@ async function main(): Promise<void> {
   // Projects whose task closed while Foreman was closed go on from it (docs/ai-employees.md §15).
   void core.projects.recover()
   // The demo: flow runs going from the start (main/demoRun.ts), and channels its director keeps moving (main/demoEmployees.ts).
-  if (demoRoot) {
-    void startDemoRun(core, store).catch((err: unknown) => console.error(`[demo] Could not start the demo's flow runs: ${err instanceof Error ? err.message : String(err)}`))
-    startDemoDirector(core, store)
-  }
+  // Each only when the scenario has its part (shared/scenarios.ts).
+  if (demoWith?.parts.includes('flows')) void startDemoRun(core, store).catch((err: unknown) => console.error(`[demo] Could not start the demo's flow runs: ${err instanceof Error ? err.message : String(err)}`))
+  if (demoWith?.parts.includes('channels')) startDemoDirector(core, store)
   // Deletes auto-archived workspaces past Settings → Git's cleanup window (off unless chosen).
   core.autoArchive.start()
   // Temp folders a crash or a killed process left behind (main/tempSweep.ts): a minute after launch, then daily.

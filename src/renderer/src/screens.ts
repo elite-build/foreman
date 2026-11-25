@@ -1,6 +1,7 @@
 // Dev-only screenshot hook. Installed only when main loads the page with
 // ?screens, which it does only under FOREMAN_SCREENSHOTS=1 (main/screenshots.ts). Main asks for one screen per page
 // load; the hook gets there with the store's own actions, waits for the page to settle and answers, then main captures.
+// The dev demo uses the same screens to open on one (`npm run dev demo <scenario>`, openScreen below), with nothing pinned.
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { chooseHomeLayout } from './components/HomeBoard'
@@ -45,6 +46,8 @@ interface Fixture {
   flowChatId: string
   // Acme, its employees and a run's workspace (main/screensOrganization.ts).
   organization: { orgId: string; employeeId: string; draftEmployeeId: string; employeeWorkspaceId: string; employeeChatId: string }
+  // A scenario with the `channels` part: the project standing at each stage after the play (main/demoEmployees.ts).
+  channels?: Record<string, { id: string; orgId: string }>
   now: number
 }
 
@@ -145,6 +148,26 @@ async function flowTab(f: Fixture, tab: 'flow' | 'lineage'): Promise<string | nu
   button.click()
   // The graph is drawn once the tab has read the run (the Flow tab) or the history (Lineage).
   return '.side-panel .flow-run .ui-graph .ui-graph__node'
+}
+
+/**
+ * A project's channel at one stage of the demo's stories (`npm run screens -- --scenario channels`): questions to answer,
+ * a plan to approve, a part's check, a part that didn't finish, a paused project, one held at a usage limit, the final
+ * check. Done when `shows` is on the page; null in a run that played no channels.
+ */
+async function channelAt(f: Fixture, stage: string, shows: string): Promise<string | null> {
+  const at = f.channels?.[stage]
+  if (!at) return null
+  setSpace(at.orgId)
+  openEmployees({ orgId: at.orgId, page: 'project', id: at.id })
+  return (await waitFor(element(`.channel-page ${shows}`))) ? '.channel-page' : null
+}
+
+/** Acme's New employee page, once its jobs are drawn. */
+async function newEmployee(f: Fixture): Promise<boolean> {
+  setSpace(f.organization.orgId)
+  openEmployees({ orgId: f.organization.orgId, page: 'new' })
+  return Boolean(await waitFor(element('.new-employee .space-chips button')))
 }
 
 // Each screen: get there, and name what shows it has rendered.
@@ -511,6 +534,42 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openEmployees({ orgId: f.organization.orgId, page: 'new' })
     return '.new-employee'
   },
+  // A job picked: who you get, what they do and what adding them approves.
+  'new-employee-picked': async (f) => {
+    if (!(await newEmployee(f))) return null
+    document.querySelector<HTMLElement>('.new-employee .space-chips button')?.click()
+    return '.new-employee .new-employee-facts'
+  },
+  // Compare jobs: every job side by side, in place of the chips.
+  'new-employee-compare': async (f) => {
+    if (!(await newEmployee(f))) return null
+    document.querySelector<HTMLElement>('.new-employee .new-employee-pick-head button')?.click()
+    return '.new-employee .space-compare'
+  },
+  // Write your own, with a description typed: Generate and Use my words are there to press.
+  'new-employee-write': async (f) => {
+    if (!(await newEmployee(f))) return null
+    document.querySelectorAll<HTMLElement>('.new-employee-ways [role="radio"]')[1]?.click()
+    const describe = await waitFor(() => Array.from(document.querySelectorAll<HTMLTextAreaElement>('.new-employee textarea')).find((area) => area.offsetParent !== null))
+    if (!describe) return null
+    typeInto(describe, 'Answers billing questions from the support inbox, and hands refunds over to a person.')
+    return '.new-employee .new-employee-actions'
+  },
+  // The demo's channels, each played to where it rests (main/demoEmployees.ts): only with the `channels` part.
+  'channel-questions': (f) => channelAt(f, 'questions', '.channel-waiting'),
+  'channel-plan': (f) => channelAt(f, 'plan', '.channel-waiting'),
+  'channel-check': (f) => channelAt(f, 'check', '.channel-waiting'),
+  'channel-stuck': (f) => channelAt(f, 'stuck', '.channel-waiting'),
+  'channel-paused': (f) => channelAt(f, 'paused', '.ui-callout'),
+  'channel-limit': (f) => channelAt(f, 'limit', '.channel-side'),
+  'channel-final': (f) => channelAt(f, 'final', '.channel-waiting'),
+  // The sidebar on Channels beside the page of them, so each channel's wait shows in both.
+  'channels-sidebar': async (f) => {
+    setSpace(f.organization.orgId)
+    setSidebarMode('channels')
+    openEmployees({ orgId: f.organization.orgId, page: 'channels' })
+    return (await waitFor(element('.channels-list'))) ? '.channels-page' : null
+  },
   memory: (f) => {
     setSpace(f.organization.orgId)
     openMemory(f.organization.orgId)
@@ -630,6 +689,16 @@ function pinPage(): void {
   const style = document.createElement('style')
   style.textContent = '*, *::before, *::after { animation: none !important; transition: none !important; }'
   document.head.append(style)
+}
+
+/**
+ * The dev demo opening on a scenario's screen (`npm run dev demo <scenario>`, main/index.ts): the same way there as a
+ * screenshot takes, once the store has loaded, with the clock, the layout and the settings left as they are.
+ */
+export async function openScreen(screen: string, fixture: Fixture): Promise<void> {
+  const go = SCREENS[screen]
+  if (!go || !(await waitFor(() => getState().snapshot, 15_000))) return
+  await go(fixture)
 }
 
 export function installScreens(): void {

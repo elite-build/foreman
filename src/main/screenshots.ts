@@ -17,11 +17,12 @@ import { axWarnings, checkAxTree, reduceAxTree, type CdpAxNode } from './axTree'
 import { compareTranscript, formatDiffs, formatTranscript, keyEvents, runWalk, type ExpectedTranscript, type Reading, type StepDiff, type Transcript, type Walk, type WalkDriver } from './keyboardWalk'
 import { fileName, LARGE_CONTENT_SIZE, planShots, type Shot } from './screensPlan'
 import { selectWalks } from './walks'
-import { seedOrganization, type OrganizationFixture } from './screensOrganization'
+import { ORGANIZATION_FIXTURE, seedOrganization, type OrganizationFixture } from './screensOrganization'
 import { seedDemoOrganization } from './demoOrganization'
 import { git } from './git'
 import { Store } from './store'
 import { DEFAULT_MODEL } from '../shared/agents'
+import { DEMO_PARTS, scenarioFromEnv, type DemoPart, type Resolved } from '../shared/scenarios'
 import type { FlowRun, FlowRunStep } from '../shared/flows'
 import type { PromptQuestion } from '../shared/promptWriter'
 import type { ApprovalResponse, ChatItem, CheckResult, ColorVision, ContextUsage, GithubRepo, Repo, Session, Settings, Workspace } from '../shared/types'
@@ -29,6 +30,21 @@ import type { ApprovalResponse, ChatItem, CheckResult, ColorVision, ContextUsage
 export const SCREENSHOTS = process.env.FOREMAN_SCREENSHOTS === '1'
 /** `npm run screens -- --walk`: play the keyboard walks after the screens, and fail the run when one does not match. */
 const WALK = process.env.FOREMAN_SCREENSHOTS_WALK === '1'
+
+/**
+ * `npm run screens -- --scenario <name>` (shared/scenarios.ts): the fixture with the scenario's parts, and its screens
+ * when `--only` names none. Null without one: the fixture alone and every screen, as ever. A name nobody knows ends the run.
+ */
+export function screensScenario(): Resolved | null {
+  const env = process.env
+  if (!env.FOREMAN_SCENARIO && !env.FOREMAN_SCENARIO_WITH && !env.FOREMAN_SCENARIO_WITHOUT) return null
+  const scenario = scenarioFromEnv(env)
+  if ('problems' in scenario) {
+    for (const problem of scenario.problems) console.error(`[screens] ${problem}`)
+    process.exit(1)
+  }
+  return scenario
+}
 
 /** The run's own folder (the script makes one; started by hand, a fresh temp folder). Data, repos and worktrees live in it. */
 export function screenshotRoot(): string {
@@ -194,6 +210,8 @@ export interface ScreensFixture {
   flowChatId: string
   /** Acme: an organization with three AI employees and their work (main/screensOrganization.ts), for the employee screens. */
   organization: OrganizationFixture
+  /** With the `channels` part: the project standing at each stage once the stories were played (demoEmployees.ts), by stage. */
+  channels?: Record<string, { id: string; orgId: string }>
   /** The page's clock while it shows a screen (renderer/src/screens.ts): half a minute after the fixture's times. */
   now: number
 }
@@ -410,8 +428,11 @@ function flowChecks(): Workspace['checks'] {
  * repositories, three AI employees and two of their runs' workspaces, written into `dataDir` before the app loads it.
  * `overrides` changes the fixture's settings (the demo, main/demo.ts); the screenshot run takes them as they are.
  */
-/** `demo`: the dev demo's fuller organizations too (demoOrganization.ts, demoLumen.ts); the screenshot run leaves them out. */
-export async function seedScreens(root: string, dataDir: string, overrides: Partial<Settings> = {}, { demo = false }: { demo?: boolean } = {}): Promise<ScreensFixture> {
+/**
+ * `parts`: what a scenario adds to the fixture (shared/scenarios.ts; demoOrganization.ts, demoLumen.ts); a plain
+ * screenshot run adds none. `demo`: every part, as `npm run dev demo` seeds.
+ */
+export async function seedScreens(root: string, dataDir: string, overrides: Partial<Settings> = {}, { demo = false, parts = demo ? DEMO_PARTS : [] }: { demo?: boolean; parts?: readonly DemoPart[] } = {}): Promise<ScreensFixture> {
   seededAt = Date.now()
   const repos = path.join(root, 'repos')
   const worktrees = path.join(root, 'workspaces')
@@ -480,7 +501,7 @@ export async function seedScreens(root: string, dataDir: string, overrides: Part
   store.state.flowRuns = flowRuns()
   const organizationSeed = { repos, worktrees, store, minutesAgo, commitAll, makeRepo, makeWorktree, writeFiles }
   const organization = await seedOrganization(organizationSeed)
-  if (demo) await seedDemoOrganization(organizationSeed)
+  if (parts.length) await seedDemoOrganization(organizationSeed, parts)
 
   const settings: Partial<Settings> = {
     language: 'en',
@@ -511,7 +532,15 @@ export async function seedScreens(root: string, dataDir: string, overrides: Part
   }
   Object.assign(store.state.settings, settings, overrides)
   store.close()
-  return { repoId: 'repo-atlas', workspaceId: 'ws-lisbon', chatId: 's-lisbon-1', queueChatId: 's-lisbon-2', flowWorkspaceId: 'ws-osaka', flowChatId: IMPLEMENT_TAB, organization, now: seededAt + 30_000 }
+  return { ...FIXTURE_IDS, organization, now: seededAt + 30_000 }
+}
+
+// The fixture's ids are the same in every seed.
+const FIXTURE_IDS = { repoId: 'repo-atlas', workspaceId: 'ws-lisbon', chatId: 's-lisbon-1', queueChatId: 's-lisbon-2', flowWorkspaceId: 'ws-osaka', flowChatId: IMPLEMENT_TAB }
+
+/** The fixture as a demo kept from an earlier launch has it (`npm run dev demo <scenario>` opens on one of its screens). */
+export function keptFixture(): ScreensFixture {
+  return { ...FIXTURE_IDS, organization: ORGANIZATION_FIXTURE, now: Date.now() }
 }
 
 // The Clone dialog's list: GitHub as gh would answer, without asking this machine's gh (its accounts and repos are real).
@@ -611,6 +640,9 @@ export const SCREENS = [
   'employee',
   'employee-approve',
   'new-employee',
+  'new-employee-picked',
+  'new-employee-compare',
+  'new-employee-write',
   'memory',
   'employee-workspace',
   'new-organization',
@@ -630,6 +662,12 @@ export const SCREENS = [
   'gallery-2d'
 ] as const
 
+/**
+ * The demo's channels at each stage they rest in, taken only by a run whose scenario has the `channels` part
+ * (shared/scenarios.ts): the run plays the demo's stories first (main/demoEmployees.ts), so they aren't in the fixture alone.
+ */
+export const CHANNEL_SCREENS = ['channel-questions', 'channel-plan', 'channel-check', 'channel-stuck', 'channel-paused', 'channel-limit', 'channel-final', 'channels-sidebar'] as const
+
 // The screens also taken in each colour-vision mode and at 200% (Tiles: the tightest layout at 200%).
 const FOCUS: readonly string[] = ['home', 'workspace-chat', 'tiles', 'settings-agents']
 const VISION: [label: string, mode: ColorVision][] = [
@@ -641,6 +679,8 @@ export interface ScreensRun {
   win: BrowserWindow
   core: Core
   fixture: ScreensFixture
+  /** `--scenario`: its screens are the ones taken when `--only` names none. */
+  scenario?: Resolved | null
   // index.html, or the dev server's URL.
   page: { file: string } | { url: string }
   out: string
@@ -651,12 +691,14 @@ export interface ScreensRun {
  * Every shot, or only the screens FOREMAN_SCREENSHOTS_ONLY names (comma-separated; `npm run screens -- --only home,assistant`).
  * FOREMAN_SCREENSHOTS_LARGE_TEXT=1 (`--large-text`) adds the `zoom200-*` and `content24-*` variants (screensPlan.ts).
  */
-function plan(): Shot[] {
+function plan(scenario: Resolved | null): Shot[] {
   const shots: Shot[] = []
-  for (const theme of ['light', 'dark'] as const) for (const screen of SCREENS) shots.push({ screen, theme })
+  const screens = scenario?.parts.includes('channels') ? [...SCREENS, ...CHANNEL_SCREENS] : SCREENS
+  for (const theme of ['light', 'dark'] as const) for (const screen of screens) shots.push({ screen, theme })
   for (const [vision] of VISION) for (const theme of ['light', 'dark'] as const) for (const screen of FOCUS) shots.push({ screen, theme, vision })
   for (const theme of ['light', 'dark'] as const) for (const screen of FOCUS) shots.push({ screen, theme, zoom: 2 })
-  const only = process.env.FOREMAN_SCREENSHOTS_ONLY?.split(',').map((s) => s.trim()).filter(Boolean)
+  const named = process.env.FOREMAN_SCREENSHOTS_ONLY?.split(',').map((s) => s.trim()).filter(Boolean)
+  const only = named?.length ? named : scenario?.screens.length ? [...scenario.screens] : undefined
   return planShots(shots, { only, largeText: process.env.FOREMAN_SCREENSHOTS_LARGE_TEXT === '1' })
 }
 
@@ -824,7 +866,7 @@ export async function runScreens(run: ScreensRun): Promise<void> {
   const baseContentSize = core.snapshot().settings.contentFontSize
   // Warnings per screenshot file, for the summary. Not failures yet.
   const axReport: Record<string, string[]> = {}
-  for (const shot of plan()) {
+  for (const shot of plan(run.scenario ?? null)) {
     const vision = VISION.find(([label]) => label === shot.vision)?.[1] ?? 'default'
     try {
       nativeTheme.themeSource = shot.theme
