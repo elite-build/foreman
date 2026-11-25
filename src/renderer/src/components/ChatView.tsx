@@ -521,7 +521,7 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
           readOnly={readOnly}
           level={headingLevel + 2}
           workspacePath={roots}
-          files={kind === 'tool' || kind === 'turn-end' ? files : undefined}
+          files={kind === 'tool' || kind === 'turn-end' || kind === 'assistant' ? files : undefined}
           subtree={kind === 'tool' ? subtrees.get(item.id) : undefined}
           waiting={kind === 'tool' && item.childId ? waiting : undefined}
           strip={strip}
@@ -948,6 +948,7 @@ const ChatRow = memo(function ChatRow({
           askedAt={askedAt}
           level={level}
           strip={strip}
+          files={files ?? null}
         />
       )
     case 'thinking':
@@ -1567,7 +1568,7 @@ function stripAbsolutelyRight(text: string, streaming?: boolean): string {
 }
 
 /** A reply. The log's ResizeObserver keeps it in view as it grows (ChatView), so it reads no layout itself. */
-const AssistantMessage = memo(function AssistantMessage({ text, streaming, workspaceId, who, askedAt, level, strip }: { text: string; streaming?: boolean; workspaceId: string; who: string; askedAt?: string; level: number; strip: boolean }) {
+const AssistantMessage = memo(function AssistantMessage({ text, streaming, workspaceId, who, askedAt, level, strip, files }: { text: string; streaming?: boolean; workspaceId: string; who: string; askedAt?: string; level: number; strip: boolean; files: FileAccess | null }) {
   const t = useT()
   const headingId = useId()
   // While the reply streams its Markdown is rendered every STREAM_RENDER_MS, not on each flush; the final text at once.
@@ -1579,7 +1580,7 @@ const AssistantMessage = memo(function AssistantMessage({ text, streaming, works
       <Hidden level={level} id={headingId}>
         {askedAt ? t('chat.message.agentReplyAt', { name: who, time: formatClock(askedAt, t.locale) }) : who}
       </Hidden>
-      <Markdown text={shown} workspaceId={workspaceId} streaming={streaming} codeTools headingStart={level + 1} />
+      <Markdown text={shown} workspaceId={workspaceId} streaming={streaming} codeTools headingStart={level + 1} files={files} />
     </article>
   )
 })
