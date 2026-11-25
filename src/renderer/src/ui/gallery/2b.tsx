@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Checkbox } from '../Checkbox'
-import { CodeEditor, type CodeEditorMark, type CodeEditorToken } from '../CodeEditor'
+import { CodeEditor, type CodeEditorChange, type CodeEditorMark, type CodeEditorToken } from '../CodeEditor'
 import { Field } from '../Field'
 import { FileInput } from '../FileInput'
 import { MaskedValue } from '../MaskedValue'
@@ -85,7 +85,36 @@ const FLOW_MARKS: CodeEditorMark[] = [
   { line: 10, tone: 'error', from: 20, to: 35, message: '"checks.result" isn\'t something a step can be shown. Did you mean checks.results?' },
   { line: 14, tone: 'warn', from: 11, to: 29, message: 'This loop has no time limit.' }
 ]
-const markLabel = (m: CodeEditorMark) => `Line ${m.line}, ${m.tone === 'error' ? 'problem' : 'warning'}: ${m.message}`
+const markLabel = (m: CodeEditorMark) => `Line ${m.line}, ${m.tone === 'error' ? 'problem' : m.tone === 'warn' ? 'warning' : 'note'}: ${m.message}`
+
+// A reviewed snippet: each token kind once, a note, and the three kinds of change (plus one removed above line 1).
+const REVIEW = [
+  '// Reviewed by the QA step',
+  'import type { Flow } from "./flow"',
+  'const limit: number = 2',
+  'const pattern = /^step-\\d+$/',
+  'const label = <Badge tone="info" />',
+  'const retries = null ?? true',
+  'console.log(input)',
+  '@deprecated'
+].join('\n')
+const REVIEW_TOKENS: CodeEditorToken[][] = [
+  [{ text: '// Reviewed by the QA step', kind: 'comment' }],
+  [{ text: 'import', kind: 'keyword' }, { text: ' type { ' }, { text: 'Flow', kind: 'type' }, { text: ' } from ' }, { text: '"./flow"', kind: 'string' }],
+  [{ text: 'const', kind: 'keyword' }, { text: ' limit: ' }, { text: 'number', kind: 'type' }, { text: ' = ' }, { text: '2', kind: 'number' }],
+  [{ text: 'const', kind: 'keyword' }, { text: ' pattern = ' }, { text: '/^step-\\d+$/', kind: 'regexp' }],
+  [{ text: 'const', kind: 'keyword' }, { text: ' label = <' }, { text: 'Badge', kind: 'tag' }, { text: ' ' }, { text: 'tone', kind: 'property' }, { text: '=' }, { text: '"info"', kind: 'string' }, { text: ' />' }],
+  [{ text: 'const', kind: 'keyword' }, { text: ' retries = ' }, { text: 'null', kind: 'literal' }, { text: ' ?? ' }, { text: 'true', kind: 'literal' }],
+  [{ text: 'console', kind: 'builtin' }, { text: '.log(' }, { text: 'input', kind: 'variable' }, { text: ')' }],
+  [{ text: '@deprecated', kind: 'meta' }]
+]
+const REVIEW_CHANGES: CodeEditorChange[] = [
+  { line: 0, kind: 'removed' },
+  { line: 2, kind: 'modified' },
+  { line: 3, kind: 'added' },
+  { line: 6, kind: 'removed' }
+]
+const REVIEW_MARKS: CodeEditorMark[] = [{ line: 6, tone: 'info', message: 'Reviewer: is null meant here, or an empty step?' }]
 
 const maskedLabels = { copy: 'Copy API key', reveal: 'Reveal API key', hide: 'Hide API key', edit: 'Edit API key', remove: 'Remove API key' }
 
@@ -162,6 +191,26 @@ export function Gallery2b() {
           )}
         </Field>
         <CodeEditor aria-label="Read-only TOML" readOnly value={'[steps.checks]\nkind = "checks"\nretries = 2'} tokenize={tokenizeToml} rows={3} />
+      </Section>
+
+      <Section title="CodeEditor: changes, pre-tokenised kinds and a note; read only">
+        <Field
+          label="review.ts"
+          description="Changes: a line removed above line 1, line 2 modified, line 3 added, a line removed after line 6. Line 6 has a note."
+        >
+          {(c) => (
+            <CodeEditor
+              {...c}
+              readOnly
+              value={REVIEW}
+              tokenLines={REVIEW_TOKENS}
+              changes={REVIEW_CHANGES}
+              marks={REVIEW_MARKS}
+              markLabel={markLabel}
+              rows={8}
+            />
+          )}
+        </Field>
       </Section>
 
       <Section title="Range">

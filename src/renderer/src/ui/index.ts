@@ -25,7 +25,7 @@ export { HardHat, hardHatColours, isHardHatColour, type HardHatProps, type HardH
 export { Field, useField, type FieldProps, type FieldBinding, type FieldControlProps, type UseFieldOptions } from './Field'
 export { TextInput, type TextInputProps, type TextInputType } from './TextInput'
 export { TextArea, type TextAreaProps } from './TextArea'
-export { CodeEditor, type CodeEditorProps, type CodeEditorMark, type CodeEditorToken, type CodeEditorTokenKind } from './CodeEditor'
+export { CodeEditor, type CodeEditorChange, type CodeEditorProps, type CodeEditorMark, type CodeEditorToken, type CodeEditorTokenKind } from './CodeEditor'
 export { Range, type RangeProps } from './Range'
 export { FileInput, type FileInputProps } from './FileInput'
 export { Checkbox, type CheckboxProps } from './Checkbox'

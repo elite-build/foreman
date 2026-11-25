@@ -30,9 +30,6 @@
   color: var(--code-fg);
   white-space: pre;
 }
-.file-line.target {
-  background: var(--selected-tint);
-}
 /* The editor is the document: a bare TextArea in a box that fills the pane and shows focus. */
 .file-editor-box {
   flex: 1;

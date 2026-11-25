@@ -4301,13 +4301,29 @@ export class Core {
     // #19: a sandboxed HTML/PDF preview's address, and an image as it was at a commit (the diff's before side).
     previewUrl: (workspaceId, path) => this.preview.urlFor(workspaceId, path),
     readImageAt: (workspaceId, path, commit) => readImageAtCommit(localOnly(this.workspaces.workspace(workspaceId), 'Image previews'), path, commit),
-    writeFile: async (workspaceId, path, content) => {
+    writeFile: async (workspaceId, path, content, expected) => {
       const dir = localOnly(this.workspaces.workspace(workspaceId), 'Editing files')
+      if (expected !== undefined) {
+        // The editor's text is what it opened or last saved: an agent's edit since then must not be overwritten.
+        const current = await readWorkspaceFile(dir, path).then(
+          (file) => {
+            // Its text can't be read back to compare (or to offer instead): refuse rather than overwrite it.
+            if (file.binary || file.tooLarge) throw new Error(`${path} changed on disk into a file too large or not text, so it wasn’t saved`)
+            return file.content
+          },
+          (err: NodeJS.ErrnoException) => {
+            if (err.code === 'ENOENT') return ''
+            throw err
+          }
+        )
+        if (current !== expected) return { current }
+      }
       await writeWorkspaceFile(dir, path, content)
       noteWorktreeChanged(dir)
       // The file may be a repository's settings.toml or template (a workspace in the repo's own folder).
       this.revalidateRepoFiles()
       void this.refreshDiffStat(workspaceId)
+      return null
     },
     searchFiles: (workspaceId, query, options) => {
       const ws = this.workspaces.workspace(workspaceId)
