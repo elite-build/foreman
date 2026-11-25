@@ -1,11 +1,15 @@
 // Screenshots of the real app for the design-system work.
-//   npm run screens -- [--out <dir>] [--only <screen,…>] [--large-text] [--walk [--walk-only <name,…>]] [--build | --no-build]
+//   npm run screens -- [--out <dir>] [--only <screen,…>] [--scenario <name>] [--with <part,…>] [--without <part,…>]
+//                      [--large-text] [--walk [--walk-only <name,…>]] [--build | --no-build]
 // Builds when the build is older than src/ (or with --build), then starts the built app with FOREMAN_SCREENSHOTS=1 on a
 // throwaway data folder (src/main/screenshots.ts). It writes <screen>-<theme>[-<vision>][-z200].png and index.json into
 // --out (default: <temp>/foreman-screens/<timestamp>), quits, and the data folder is removed. Each PNG gets a
 // <name>.ax.json beside it (the reduced accessibility tree), and the summary lists accessibility warnings per screen:
 // focusable elements without a name, heading levels that skip, a main-landmark count other than one (not counted behind a
 // modal dialog, whose page is inert). Warnings only.
+// --scenario starts the fixture with what a scenario adds (src/shared/scenarios.ts, as `npm run dev demo <scenario>`
+// does) and, when --only names no screen, takes the scenario's screens: `--scenario channels` plays the demo's channel
+// stories until nothing moves and takes a channel at each stage. --with and --without add and leave out parts.
 // --large-text adds the large-text fixtures (accessibility plan, D3), off by default so the usual run takes no longer:
 // zoom200-<screen>-<theme>.png (the window at 200% zoom) and content24-<screen>-<theme>.png (Content text size 24, set
 // through the setting) for home, workspace-chat, file-diff and settings-accessibility, in light and dark. `--only` also
@@ -86,6 +90,9 @@ const env = {
   FOREMAN_SCREENSHOTS_DIR: data,
   FOREMAN_SCREENSHOTS_OUT: out,
   FOREMAN_SCREENSHOTS_ONLY: option('--only') ?? '',
+  FOREMAN_SCENARIO: option('--scenario') ?? '',
+  FOREMAN_SCENARIO_WITH: option('--with') ?? '',
+  FOREMAN_SCENARIO_WITHOUT: option('--without') ?? '',
   FOREMAN_SCREENSHOTS_LARGE_TEXT: args.includes('--large-text') ? '1' : '',
   FOREMAN_SCREENSHOTS_WALK: args.includes('--walk') ? '1' : '',
   FOREMAN_SCREENSHOTS_WALK_ONLY: option('--walk-only') ?? '',

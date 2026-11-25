@@ -12,13 +12,17 @@
 // into the account's usage limit, waits for the reset with the rest of the team's new work, and then goes on by itself.
 // It acts only on what it started and only once (round 1, plan version 1), so what you answer or decide stays yours, and a
 // kept demo picks up where it was: a channel already past a step is left alone.
+//
+// A screenshot run of a scenario with the `channels` part (shared/scenarios.ts) plays the same stories with no waits, one
+// after another, until nothing moves (playDemoChannels), and then takes its screens: a channel at each stage, made by the
+// services of the code being photographed rather than written down here as rows.
 import type { ForemanDb } from './db'
 import type { Core } from './core'
 import type { Store } from './store'
 import type { AgentTurn, TurnCallbacks, TurnRequest } from './agents/types'
 import { questionState, type PlanInput, type Project, type QuestionsInput } from '../shared/projects'
 import type { EmployeeToolName } from '../shared/employeeTools'
-import type { EmployeeRun, EmployeeTask } from '../shared/employeeWork'
+import { RUN_GOING, type EmployeeRun, type EmployeeTask } from '../shared/employeeWork'
 import type { ChatItem } from '../shared/types'
 import { ORG_ID } from './screensOrganization'
 import { LUMEN_CLI_REPO, LUMEN_ID, LUMEN_SITE_REPO } from './demoLumen'
@@ -56,6 +60,8 @@ interface Story {
   files?: Record<string, string>
   // Parts that also draw an HTML mock.
   mocks?: Record<string, string>
+  // Where it stands once played out, as the screenshots name it (`channel-<stage>`, renderer/src/screens.ts).
+  stage?: string
 }
 
 const MOCK = (title: string, body: string) => `<!doctype html>
@@ -79,6 +85,7 @@ const STORIES: Story[] = [
     ],
     answers: ['Seats and API requests', 'Both'],
     approve: true,
+    stage: 'check',
     plan: {
       summary: 'A pricing page on acme.dev with three tiers and a calculator for seats and API requests.',
       size: 'small',
@@ -109,6 +116,7 @@ const STORIES: Story[] = [
     ],
     answers: ['curl, JavaScript and Python', 'Yes'],
     approve: true,
+    stage: 'stuck',
     plan: {
       summary: 'A rate-limits guide on developer.acme.dev, with runnable examples that honour Retry-After.',
       size: 'small',
@@ -137,6 +145,7 @@ const STORIES: Story[] = [
       { question: 'When two people edit the same thing offline, who wins?', options: ['The last to sync', 'Ask the person'] }
     ],
     answers: ['Reading and editing', 'The last 30 days', 'Ask the person'],
+    stage: 'plan',
     plan: {
       summary: 'Offline reading and editing in the Atlas app: 30 days kept on the phone, changes synced when it reconnects, conflicts shown to the person.',
       size: 'large',
@@ -162,6 +171,7 @@ const STORIES: Story[] = [
       { question: 'Should annual plans be refundable?', options: ['Within 30 days', 'No'] },
       { question: 'Who should see the annual option?', options: ['Every team', 'Teams of 10 seats or more'] }
     ],
+    stage: 'questions',
     plan: { summary: '', size: 'small', parts: [] }
   },
   {
@@ -186,6 +196,7 @@ const STORIES: Story[] = [
     answers: ['In the browser'],
     approve: true,
     pause: true,
+    stage: 'paused',
     plan: {
       summary: 'Search on lumen.dev that runs in the browser, over every page and every flag.',
       size: 'small',
@@ -207,6 +218,7 @@ const STORIES: Story[] = [
     answers: ['The TOML config and the faster tail'],
     approve: true,
     limit: 'changelog',
+    stage: 'limit',
     plan: {
       summary: 'Lumen 0.9: its changelog and a release post about lumen.toml and the faster tail.',
       size: 'small',
@@ -259,22 +271,24 @@ function questionBeats(project: Project, story: Story | undefined): Beat[] {
 
 function planBeats(project: Project, story: Story | undefined): Beat[] {
   const replan = project.plan
+  // Every part of a demo plan writes a document in memory and leaves the repository alone, which a plan has to say:
+  // a part of someone with Write access is otherwise taken to change it, and then one part must publish the branch (§15).
   const input: PlanInput = replan
     ? {
         summary: replan.summary,
         size: replan.size,
         understood: replan.understood,
         done_when: replan.doneWhen,
-        parts: replan.parts.map((p) => ({ id: p.id, title: p.title, owner: p.owner, brief: p.brief, reads: p.reads, writes: p.writes, depends_on: p.dependsOn, gate_after: p.gate }))
+        parts: replan.parts.map((p) => ({ id: p.id, title: p.title, owner: p.owner, brief: p.brief, reads: p.reads, writes: p.writes, depends_on: p.dependsOn, gate_after: p.gate, changes_repo: p.changesRepo, publishes: p.publishes, checks: p.checks }))
       }
     : story?.plan.parts.length
-      ? story.plan
+      ? { ...story.plan, parts: story.plan.parts.map((p) => ({ changes_repo: false, ...p })) }
       : {
           summary: project.requirement,
           size: 'small',
           understood: [project.requirement],
           done_when: ['It does what was asked.'],
-          parts: [{ id: 'write-up', title: 'Write it up', owner: project.pmId, brief: project.requirement, writes: 'write-up.md' }]
+          parts: [{ id: 'write-up', title: 'Write it up', owner: project.pmId, brief: project.requirement, writes: 'write-up.md', changes_repo: false }]
         }
   return [
     { say: replan ? 'The plan stands as it is: the same parts, with the same owners.' : 'Thanks: that’s enough to plan.' },
@@ -349,9 +363,20 @@ function script(task: EmployeeTask, run: EmployeeRun, db: ForemanDb): Beat[] {
   return [{ say: 'Here is what I did, and why.' }, call('finish_task', { status: 'done', summary: 'Answered the question about this part.' }, 1500)]
 }
 
+// A screenshot run plays the scripts with no waits (playDemoChannels); the demo keeps their pace.
+let instant = false
+
+/** Tomorrow at nine: a limit met in a screenshot run resets at the same clock time in every run, and never during one. */
+function tomorrowAtNine(): Date {
+  const at = new Date()
+  at.setDate(at.getDate() + 1)
+  at.setHours(9, 0, 0, 0)
+  return at
+}
+
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms)
+    const timer = setTimeout(resolve, instant ? 0 : ms)
     signal.addEventListener('abort', () => {
       clearTimeout(timer)
       resolve()
@@ -368,7 +393,7 @@ export class EmployeeDemoTurn implements AgentTurn {
     const { turnId } = this.request
     const words = said.split(/(?<= )/)
     let text = ''
-    for (let i = 0; i < words.length && !this.stopper.signal.aborted; i += 4) {
+    for (let i = 0; i < words.length && !this.stopper.signal.aborted && !instant; i += 4) {
       text += words.slice(i, i + 4).join('')
       this.cb.item({ kind: 'assistant', id, turnId, text, streaming: true }, true)
       await sleep(110, this.stopper.signal)
@@ -401,7 +426,7 @@ export class EmployeeDemoTurn implements AgentTurn {
         continue
       }
       if ('limit' in beat) {
-        const resetAt = new Date(Date.now() + beat.limit * 60_000)
+        const resetAt = instant ? tomorrowAtNine() : new Date(Date.now() + beat.limit * 60_000)
         const time = resetAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
         const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
         this.cb.limits?.([{ kind: 'session', usedPercent: 100, resetsAt: resetAt.toISOString(), state: 'blocked' }])
@@ -445,6 +470,11 @@ export class EmployeeDemoTurn implements AgentTurn {
 
 // ---- the director ----
 
+// A demo kept from an earlier version of the demo data, or a scenario without the team or Lumen (shared/scenarios.ts), may
+// not have the story's organization, its repository or the program manager who plans it.
+const canPlay = (store: Store, story: Story): boolean =>
+  Boolean(store.state.organizations?.find((o) => o.id === story.orgId)?.programManagerId) && store.state.repos.some((r) => r.id === story.repoId)
+
 const DIRECTOR_TICK_MS = 2_000
 // How long a wait shows before the director acts on it, so you can see it.
 const DIRECTOR_PAUSE_MS = 6_000
@@ -458,8 +488,7 @@ export function startDemoDirector(core: Core, store: Store): () => void {
   // What it tried and couldn't do: said once, never tried again.
   const failed = new Set<string>()
   const projectFor = (story: Story) => db.projects(story.orgId).find((p) => p.requirement === story.requirement)
-  // A demo kept from an earlier version of the demo data may not have the story's organization or repository.
-  const playable = (story: Story) => store.state.organizations?.some((o) => o.id === story.orgId) && store.state.repos.some((r) => r.id === story.repoId)
+  const playable = (story: Story) => canPlay(store, story)
 
   const act = (key: string, fn: () => Promise<unknown>) => {
     if (busy.has(key) || failed.has(key)) return
@@ -496,4 +525,101 @@ export function startDemoDirector(core: Core, store: Store): () => void {
   const timer = setInterval(tick, DIRECTOR_TICK_MS)
   tick()
   return () => clearInterval(timer)
+}
+
+// ---- a screenshot run: the stories played to a standstill ----
+
+const PLAY_POLL_MS = 100
+// How long nothing may change before the play reads it as rest: with no run under way, and with one queued that nothing
+// admits (work held at the usage limit, a part waiting its turn).
+const PLAY_STILL_MS = 600
+const PLAY_HELD_MS = 3_000
+
+/**
+ * Every story, in the order the director starts them, each played until it rests: with no waits in the scripts, and the
+ * person's part (the answers and approvals the stories make) given at once. Then nothing more runs. Answers with the
+ * project standing at each stage, by stage name (`final`: the fixture's single sign-on, at its final check).
+ */
+export async function playDemoChannels(core: Core, store: Store, timeoutMs = 180_000): Promise<Record<string, { id: string; orgId: string }>> {
+  const db = store.db as ForemanDb
+  const deadline = Date.now() + timeoutMs
+  instant = true
+  const stories = STORIES.filter((story) => canPlay(store, story)).sort((a, b) => a.at - b.at)
+  const projectFor = (story: Story) => db.projects(story.orgId).find((p) => p.requirement === story.requirement)
+  // Everything a run or a project can change, so "nothing moves" is something read rather than waited for.
+  const picture = () =>
+    JSON.stringify([
+      db.employeeRuns({}).map((r) => [r.id, r.state]),
+      db.employeeTasksIn(['open', 'running', 'waiting']).map((t) => [t.id, t.state, t.hold]),
+      db.projects().map((p) => [p.id, p.phase, p.paused, p.waits.map((w) => w.kind), Object.entries(p.parts ?? {}).map(([id, part]) => [id, part.state, part.round]), p.steps.length])
+    ])
+  const rest = async (): Promise<void> => {
+    let seen = picture()
+    let since = Date.now()
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, PLAY_POLL_MS))
+      const now = picture()
+      if (now !== seen) {
+        seen = now
+        since = Date.now()
+        continue
+      }
+      if (db.employeeRuns({ states: [...RUN_GOING] }).length) continue
+      const queued = db.employeeRuns({ states: ['queued'] }).length > 0
+      if (Date.now() - since >= (queued ? PLAY_HELD_MS : PLAY_STILL_MS)) return
+    }
+    throw new Error(`the channels were still moving after ${Math.round(timeoutMs / 1000)} seconds`)
+  }
+  try {
+    // What the fixture left under way (single sign-on's two parts, started again at launch) goes first.
+    await rest()
+    for (const story of stories) {
+      if (!projectFor(story)) await core.projects.start(story.orgId, { requirement: story.requirement, repoId: story.repoId })
+      for (let step = 0; step < 6; step++) {
+        await rest()
+        const project = projectFor(story)
+        if (!project || project.phase === 'closed') break
+        const questions = project.waits.find((w) => w.kind === 'questions')
+        const plan = project.waits.find((w) => w.kind === 'plan')
+        if (questions && story.answers && (project.asks?.length ?? 0) === 1) await core.projects.answer(project.id, questions.id, story.answers)
+        else if (plan && story.approve && project.plans.length === 1) {
+          if (story.pause) await core.projects.setPaused(project.id, true)
+          await core.projects.decide(project.id, plan.id, 'approve')
+        } else break
+      }
+    }
+    await rest()
+  } finally {
+    instant = false
+  }
+  const held = (project: Project) => db.employeeTasksIn(['open']).some((t) => t.project?.id === project.id && t.hold === 'usage-limit')
+  const waits = (project: Project, kind: string) => project.waits.some((w) => w.kind === kind)
+  // Where a story says it rests, read from the project: a story that rests somewhere else would be photographed as
+  // something it isn't, so it ends the run (a plan the rules now refuse, a script a tool no longer takes).
+  const AT: Record<string, (project: Project) => boolean> = {
+    questions: (p) => p.phase === 'planning' && waits(p, 'questions'),
+    plan: (p) => p.phase === 'plan-gate' && waits(p, 'plan'),
+    check: (p) => p.phase === 'working' && waits(p, 'gate'),
+    stuck: (p) => p.phase === 'working' && waits(p, 'stuck'),
+    paused: (p) => p.phase === 'working' && p.paused === true,
+    limit: (p) => p.phase === 'working' && held(p),
+    final: (p) => p.phase === 'final-gate' && waits(p, 'final')
+  }
+  const stages: Record<string, { id: string; orgId: string }> = {}
+  const astray: string[] = []
+  const stands = (project: Project, stage: string | undefined) => {
+    const where = `${project.paused ? 'paused, ' : ''}${project.phase}${project.waits.length ? `, waiting on ${project.waits.map((w) => w.kind).join(' and ')}` : ''}${held(project) ? ', held at the usage limit' : ''}`
+    console.log(`[screens] played #${project.slug}: ${where}`)
+    if (!stage) return
+    if (AT[stage]?.(project)) stages[stage] = { id: project.id, orgId: project.orgId }
+    else astray.push(`#${project.slug} should rest at "${stage}" and stands at: ${where}`)
+  }
+  for (const story of stories) {
+    const project = projectFor(story)
+    if (project) stands(project, story.stage)
+  }
+  const sso = db.project('proj-sso')
+  if (sso) stands(sso, 'final')
+  if (astray.length) throw new Error(`a story didn’t reach its stage.\n${astray.join('\n')}`)
+  return stages
 }

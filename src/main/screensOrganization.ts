@@ -75,6 +75,9 @@ function definition(id: string, colour: string, text: Partial<EmployeeDefinition
   return { toml, prompt, definition: parsed.definition }
 }
 
+/** The same in every seed, so a demo kept from an earlier launch can be opened on a screen too. */
+export const ORGANIZATION_FIXTURE: OrganizationFixture = { orgId: ORG_ID, employeeId: MAX, draftEmployeeId: LIN, employeeWorkspaceId: MAX_WORKSPACE, employeeChatId: MAX_TAB }
+
 export async function seedOrganization(seed: OrganizationSeed): Promise<OrganizationFixture> {
   const { store, minutesAgo, commitAll } = seed
   const at = minutesAgo
@@ -328,7 +331,7 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
       createdAt: at(24), updatedAt: at(24)
     })
   })
-  return { orgId: ORG_ID, employeeId: MAX, draftEmployeeId: LIN, employeeWorkspaceId: MAX_WORKSPACE, employeeChatId: MAX_TAB }
+  return ORGANIZATION_FIXTURE
 }
 
 /** A run's one turn: Foreman's message marked as the employee's, what it did, its answer, the end. */

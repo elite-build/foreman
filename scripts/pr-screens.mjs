@@ -1,9 +1,12 @@
 // Before-and-after screenshots for a pull request that changes the UI (.claude/skills/create-pr/ui-changes.md).
 //
-//   npm run pr:screens -- capture --only <screen,…> [--base <ref>] [--out <dir>]
+//   npm run pr:screens -- capture (--only <screen,…> | --scenario <name>) [--base <ref>] [--out <dir>]
 //     Takes the named fixture screens (SCREENS in src/main/screenshots.ts) twice with `npm run screens`: "before" from a
 //     temporary worktree at <ref> (default: the merge base with origin/main) that borrows this checkout's node_modules,
 //     and "after" from this working tree. Then it compares them into <out>/diff. The worktree is removed either way.
+//     --scenario starts both on what a scenario adds to the fixture (src/shared/scenarios.ts: `channels` plays the demo's
+//     channels to each stage, `hire-employee` is adding an AI employee) and takes its screens, or those --only names.
+//     A base from before the scenario existed has no "before": the "after" shots are taken alone.
 //   npm run pr:screens -- publish <png>… [--folder <name>]
 //     Pushes the PNGs to the pr-screenshots branch on origin, under <folder>/ (default: the current branch), and prints
 //     Markdown image links pinned to that commit, for the PR body. A shot from a capture's before/, after/ or diff/ folder
@@ -13,7 +16,7 @@
 // Only Node built-ins and git, like scripts/release.mjs.
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs'
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -188,9 +191,28 @@ export function withBaseWorktree(root, ref, fn) {
   }
 }
 
-function capture({ only, base, out }) {
+/**
+ * The scenarios the checkout at `dir` has (src/shared/scenarios.json); none in one from before there were any. Read here
+ * rather than through scripts/scenarios.mjs: the pre-push hook loads this file, and should need no other.
+ */
+function scenarioNames(dir) {
+  try {
+    return Object.keys(JSON.parse(readFileSync(path.join(dir, 'src', 'shared', 'scenarios.json'), 'utf8')).scenarios)
+  } catch {
+    return []
+  }
+}
+
+/** Whether the checkout at `dir` knows the scenario: one from before it was added would take every screen of the fixture alone. */
+export function knowsScenario(dir, name) {
+  return scenarioNames(dir).includes(name)
+}
+
+function capture({ only, scenario, base, out }) {
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim()
-  if (!only) throw new Error('Name the screens with --only <screen,…> (SCREENS in src/main/screenshots.ts)')
+  if (!only && !scenario) throw new Error(`Name the screens with --only <screen,…> (SCREENS in src/main/screenshots.ts), or an area with --scenario <name> (${scenarioNames(root).join(', ')})`)
+  if (scenario && !knowsScenario(root, scenario)) throw new Error(`No scenario called "${scenario}". There are: ${scenarioNames(root).join(', ')}`)
+  const what = [...(only ? ['--only', only] : []), ...(scenario ? ['--scenario', scenario] : [])]
   const ref = base ?? git('merge-base', 'origin/main', 'HEAD')
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
   const dir = path.resolve(out ?? path.join(os.tmpdir(), 'foreman-pr-screens', `${folderName(git('rev-parse', '--abbrev-ref', 'HEAD'))}-${stamp}`))
@@ -198,18 +220,23 @@ function capture({ only, base, out }) {
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} is not empty: choose another --out`)
   const [before, after, diff] = ['before', 'after', 'diff'].map((d) => path.join(dir, d))
   mkdirSync(dir, { recursive: true })
+  let compared = true
   withBaseWorktree(root, ref, (worktree) => {
+    if (scenario && !knowsScenario(worktree, scenario)) {
+      compared = false
+      return console.log(`Before: ${ref.slice(0, 12)} has no "${scenario}" scenario, so there is nothing to compare with. Taking "after" alone.`)
+    }
     console.log(`Before: ${ref.slice(0, 12)}`)
-    if (screens(worktree, ['--only', only, '--out', before, '--build'])) throw new Error('The "before" capture failed (output above)')
+    if (screens(worktree, [...what, '--out', before, '--build'])) throw new Error('The "before" capture failed (output above)')
   })
   console.log('After: this working tree')
-  if (screens(root, ['--only', only, '--out', after])) throw new Error('The "after" capture failed (output above)')
+  if (screens(root, [...what, '--out', after])) throw new Error('The "after" capture failed (output above)')
   // Exits 1 when anything differs, which is the point here.
-  screens(root, ['--compare', before, after, '--diff', diff])
+  if (compared) screens(root, ['--compare', before, after, '--diff', diff])
   console.log(`
-Before: ${before}
+Before: ${compared ? before : 'none'}
 After:  ${after}
-Diff:   ${diff}
+Diff:   ${compared ? diff : 'none'}
 A screen can differ without a code change (the host's agent sign-in state, the pointer's hover): check the diff image.
 Before publishing, look at each shot for anything from this machine (a user name in a path, a real repository).
 Next: npm run pr:screens -- publish <png>…`)
@@ -244,7 +271,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     const { command, options, positional } = parseArgs(process.argv.slice(2))
     if (command === 'capture' && !positional.length) capture(options)
     else if (command === 'publish') publish(positional, options.folder)
-    else throw new Error('Usage: npm run pr:screens -- capture --only <screen,…> [--base <ref>] [--out <dir>]\n       npm run pr:screens -- publish <png>… [--folder <name>]')
+    else throw new Error('Usage: npm run pr:screens -- capture (--only <screen,…> | --scenario <name>) [--base <ref>] [--out <dir>]\n       npm run pr:screens -- publish <png>… [--folder <name>]')
   } catch (error) {
     console.error(error instanceof Error ? error.message : error)
     process.exitCode = 1

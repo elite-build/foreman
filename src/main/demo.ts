@@ -7,8 +7,12 @@
 // employees' runs in the channels the demo's director keeps moving (main/demoEmployees.ts); GitHub, integrations,
 // cloud sandboxes and paired devices stay off (main/index.ts).
 // `npm run dev demo reset` (FOREMAN_DEMO_RESET=1) throws the folder away and seeds it again.
+// `npm run dev demo <scenario> [--with <part,…>] [--without <part,…>]` starts it with less (shared/scenarios.ts): only the
+// parts the scenario names are seeded and set moving, in a folder of the scenario's own, and it opens on the scenario's
+// screen. `npm run dev demo list` prints the scenarios and parts.
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { DATA_PARTS, DEMO_PARTS, scenarioFromEnv, type DemoPart, type Resolved } from '../shared/scenarios'
 
 export const DEMO = process.env.FOREMAN_DEMO === '1'
 export const DEMO_RESET = process.env.FOREMAN_DEMO_RESET === '1'
@@ -23,9 +27,22 @@ const MARKER = '.foreman-demo'
 export const DEMO_VERSION = 2
 const READY = `ready ${DEMO_VERSION}`
 
-/** FOREMAN_DEMO_DIR, or "Foreman Demo" next to the app's own data folder. */
-export function demoFolder(appData: string): string {
-  return path.resolve(process.env.FOREMAN_DEMO_DIR || path.join(appData, 'Foreman Demo'))
+/** What this launch was asked to start with: `full` unless a scenario is named. A name nobody knows ends the launch. */
+export function demoScenario(): Resolved {
+  const scenario = scenarioFromEnv(process.env, 'full')
+  if ('problems' in scenario) {
+    for (const problem of scenario.problems) console.error(`[demo] ${problem}`)
+    process.exit(1)
+  }
+  return scenario
+}
+
+/**
+ * FOREMAN_DEMO_DIR, or "Foreman Demo" next to the app's own data folder. A scenario other than `full` has a folder of its
+ * own beside it ("Foreman Demo (channels)"), so starting one never touches what you kept in another.
+ */
+export function demoFolder(appData: string, scenario?: string): string {
+  return path.resolve(process.env.FOREMAN_DEMO_DIR || path.join(appData, scenario && scenario !== 'full' ? `Foreman Demo (${scenario})` : 'Foreman Demo'))
 }
 
 /** The app's data folder inside the demo's; the fixture's repositories and worktrees sit beside it. */
@@ -51,7 +68,7 @@ export function claimDemoFolder(root: string, reset: boolean): 'kept' | 'outdate
   if (state === null && existsSync(root) && readdirSync(root).length) {
     throw new Error(`${root} is not a Foreman demo folder. Empty it, or set FOREMAN_DEMO_DIR to another folder.`)
   }
-  if (state?.startsWith('ready') && !reset) return state === READY ? 'kept' : 'outdated'
+  if (state?.startsWith('ready') && !reset) return state.split(' ')[1] === String(DEMO_VERSION) ? 'kept' : 'outdated'
   mkdirSync(root, { recursive: true })
   writeFileSync(path.join(root, MARKER), 'seeding\n')
   for (const name of readdirSync(root)) {
@@ -65,8 +82,24 @@ export function claimDemoFolder(root: string, reset: boolean): 'kept' | 'outdate
   return 'seed'
 }
 
-/** Once the app is ready: seed a claimed folder, then mark it ready so the next launch keeps it. */
-export async function seedDemo(root: string, seed: (root: string, dataDir: string) => Promise<unknown>): Promise<void> {
+/**
+ * Once the app is ready: seed a claimed folder, then mark it ready so the next launch keeps it. The marker names the
+ * parts it was seeded with when they aren't every one ("ready 2 team,channels").
+ */
+export async function seedDemo(root: string, seed: (root: string, dataDir: string) => Promise<unknown>, parts: readonly DemoPart[] = DEMO_PARTS): Promise<void> {
   await seed(root, demoDataDir(root))
-  writeFileSync(path.join(root, MARKER), `${READY}\n`)
+  writeFileSync(path.join(root, MARKER), `${parts.length === DEMO_PARTS.length ? READY : `${READY} ${parts.join(',')}`}\n`)
+}
+
+/**
+ * The data a kept demo has that this launch didn't ask for, or lacks: said in the log, never fixed unasked (a reset
+ * seeds what was asked for). Null when they agree, or when the demo's own version is another.
+ */
+export function keptDemoDiffers(root: string, asked: readonly DemoPart[]): { seeded: DemoPart[]; asked: DemoPart[] } | null {
+  const [ready, version, list] = (marker(root) ?? '').split(' ')
+  if (ready !== 'ready' || version !== String(DEMO_VERSION)) return null
+  const data = (parts: readonly string[]) => DATA_PARTS.filter((p) => parts.includes(p))
+  const seeded = data(list === undefined ? DEMO_PARTS : list.split(','))
+  const wanted = data(asked)
+  return seeded.join() === wanted.join() ? null : { seeded, asked: wanted }
 }

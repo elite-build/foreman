@@ -15,7 +15,15 @@ import { initStore } from './store'
 
 // Dev-only: main loads the page with ?screens only for a screenshot run (FOREMAN_SCREENSHOTS=1, main/screenshots.ts).
 // The hook pins the clock, so it goes in before the store's first render.
-const screens = new URLSearchParams(location.search).has('screens') ? import('./screens').then((m) => m.installScreens()) : undefined
+const query = new URLSearchParams(location.search)
+const screens = query.has('screens') ? import('./screens').then((m) => m.installScreens()) : undefined
+// Dev-only: the demo's first window opens on its scenario's screen (`npm run dev demo <scenario>`, main/index.ts). Once
+// for the window: a reload while developing stays where you were.
+const open = import.meta.env.DEV && !sessionStorage.getItem('foreman.demo.opened') ? query.get('open') : null
+if (open) {
+  sessionStorage.setItem('foreman.demo.opened', '1')
+  void import('./screens').then((m) => m.openScreen(open, JSON.parse(query.get('fixture') ?? '{}')))
+}
 
 void Promise.resolve(screens).then(initStore).then(() => {
   createRoot(document.getElementById('root')!).render(
