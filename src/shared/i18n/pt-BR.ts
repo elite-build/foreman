@@ -1928,7 +1928,6 @@ export const ptBR: Catalogue = {
   'settings.browser.install.step1': 'Clique em Mostrar pasta da extensão.',
   'settings.browser.install.step2': 'No Chrome, abra chrome://extensions (no Edge: edge://extensions) e ative o Modo do desenvolvedor.',
   'settings.browser.install.step3': 'Clique em Carregar sem compactação e escolha a pasta.',
-  'settings.browser.install.folder': 'Pasta da extensão',
   'settings.browser.install.reveal': 'Mostrar pasta da extensão',
   'settings.browser.list.title': 'Navegadores',
   'settings.browser.list.help': 'Os navegadores que se conectaram ao Foreman. Permita um antes que os agentes possam usá-lo.',

@@ -1928,7 +1928,6 @@ export const zhCN: Catalogue = {
   'settings.browser.install.step1': '点击“显示扩展程序文件夹”。',
   'settings.browser.install.step2': '在 Chrome 中打开 chrome://extensions（Edge 中为 edge://extensions），并开启“开发者模式”。',
   'settings.browser.install.step3': '点击“加载已解压的扩展程序”，然后选择该文件夹。',
-  'settings.browser.install.folder': '扩展程序文件夹',
   'settings.browser.install.reveal': '显示扩展程序文件夹',
   'settings.browser.list.title': '浏览器',
   'settings.browser.list.help': '已连接到 Foreman 的浏览器。允许之后，智能体才能使用它。',

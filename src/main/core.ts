@@ -4957,6 +4957,8 @@ export class Core {
       if (patch.scriptShell) setScriptShell(patch.scriptShell)
       // Foreman for Chrome turned on: register the native-messaging host so the extension can connect.
       if (patch.browserControl === true && !wasBrowserControl) void this.registerBrowserHost()
+      // The allowed browsers changed however they were saved: windows hear the new list.
+      if ('browsers' in patch) this.host.broadcast({ type: 'browser-links', links: this.browserLink.links() })
       this.store.save()
       if (patch.theme) this.host.applyTheme(settings.theme)
       if ('language' in patch) this.host.applyLanguage?.()

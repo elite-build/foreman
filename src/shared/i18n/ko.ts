@@ -1928,7 +1928,6 @@ export const ko: Catalogue = {
   'settings.browser.install.step1': '확장 프로그램 폴더 보기를 클릭합니다.',
   'settings.browser.install.step2': 'Chrome에서 chrome://extensions를 열고(Edge는 edge://extensions) 개발자 모드를 켭니다.',
   'settings.browser.install.step3': '압축해제된 확장 프로그램 로드를 클릭하고 폴더를 선택합니다.',
-  'settings.browser.install.folder': '확장 프로그램 폴더',
   'settings.browser.install.reveal': '확장 프로그램 폴더 보기',
   'settings.browser.list.title': '브라우저',
   'settings.browser.list.help': 'Foreman에 연결된 브라우저입니다. 에이전트가 사용하려면 먼저 허용해야 합니다.',

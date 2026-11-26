@@ -1928,7 +1928,6 @@ export const ja: Catalogue = {
   'settings.browser.install.step1': '「拡張機能のフォルダを表示」をクリックします。',
   'settings.browser.install.step2': 'Chrome で chrome://extensions を開き（Edge では edge://extensions）、デベロッパーモードをオンにします。',
   'settings.browser.install.step3': '「パッケージ化されていない拡張機能を読み込む」をクリックし、フォルダを選びます。',
-  'settings.browser.install.folder': '拡張機能のフォルダ',
   'settings.browser.install.reveal': '拡張機能のフォルダを表示',
   'settings.browser.list.title': 'ブラウザ',
   'settings.browser.list.help': 'Foreman に接続したブラウザです。エージェントが使う前に許可してください。',

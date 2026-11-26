@@ -1928,7 +1928,6 @@ export const fr: Catalogue = {
   'settings.browser.install.step1': 'Cliquez sur Afficher le dossier de l’extension.',
   'settings.browser.install.step2': 'Dans Chrome, ouvrez chrome://extensions (Edge : edge://extensions) et activez le mode développeur.',
   'settings.browser.install.step3': 'Cliquez sur Charger l’extension non empaquetée et choisissez le dossier.',
-  'settings.browser.install.folder': 'Dossier de l’extension',
   'settings.browser.install.reveal': 'Afficher le dossier de l’extension',
   'settings.browser.list.title': 'Navigateurs',
   'settings.browser.list.help': 'Les navigateurs connectés à Foreman. Autorisez-en un avant que les agents puissent l’utiliser.',

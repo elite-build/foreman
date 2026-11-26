@@ -1928,7 +1928,6 @@ export const de: Catalogue = {
   'settings.browser.install.step1': 'Klicke auf Erweiterungsordner anzeigen.',
   'settings.browser.install.step2': 'Öffne in Chrome chrome://extensions (Edge: edge://extensions) und aktiviere den Entwicklermodus.',
   'settings.browser.install.step3': 'Klicke auf Entpackte Erweiterung laden und wähle den Ordner aus.',
-  'settings.browser.install.folder': 'Erweiterungsordner',
   'settings.browser.install.reveal': 'Erweiterungsordner anzeigen',
   'settings.browser.list.title': 'Browser',
   'settings.browser.list.help': 'Die Browser, die sich mit Foreman verbunden haben. Erlaube einen, bevor Agenten ihn nutzen können.',

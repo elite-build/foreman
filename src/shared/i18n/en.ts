@@ -2143,7 +2143,6 @@ export const en = {
   'settings.browser.install.step1': 'Click Show extension folder.',
   'settings.browser.install.step2': 'In Chrome open chrome://extensions (Edge: edge://extensions) and turn on Developer mode.',
   'settings.browser.install.step3': 'Click Load unpacked and choose the folder.',
-  'settings.browser.install.folder': 'Extension folder',
   'settings.browser.install.reveal': 'Show extension folder',
   'settings.browser.list.title': 'Browsers',
   'settings.browser.list.help': 'The browsers that connected to Foreman. Allow one before agents can use it.',

@@ -139,6 +139,19 @@ async function flowsSetting(on: boolean): Promise<void> {
   await waitFor(() => Boolean(getState().snapshot?.settings.flows) === on)
 }
 
+// The screens taken with Settings → Browser on and one allowed browser (not connected: the fixture has no extension);
+// every other screen turns it off, so they look as they did.
+const BROWSER_SCREENS: readonly string[] = ['settings-browser', 'workspace-browser-menu']
+const FIXTURE_BROWSER = { id: 'fixture-chrome', name: 'Chrome · Work', kind: 'chrome' as const }
+
+/** Settings → Browser on or off. Saving the browsers sends the window the new list (core.ts updateSettings). */
+async function browserSetting(on: boolean): Promise<void> {
+  if (Boolean(getState().snapshot?.settings.browserControl) === on) return
+  await api.updateSettings(on ? { browserControl: true, browsers: [FIXTURE_BROWSER], browserDefault: FIXTURE_BROWSER.id } : { browserControl: false })
+  await waitFor(() => Boolean(getState().snapshot?.settings.browserControl) === on)
+  if (on) await waitFor(() => getState().browserLinks.length > 0)
+}
+
 /** The flow run's workspace with one of its side panel's tabs open; done when that tab's diagram has drawn. */
 async function flowTab(f: Fixture, tab: 'flow' | 'lineage'): Promise<string | null> {
   selectWorkspace(f.flowWorkspaceId)
@@ -403,6 +416,20 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openSettingsPage({ section: 'data', part: 'langfuse' })
     // The section draws once its status has come back.
     return (await waitFor(() => document.getElementById(rowDomId('langfuse-export')))) ? '.settings-view' : null
+  },
+  // Settings → Browser: on, the install steps, one allowed browser (not open) as the default, the blocked sites.
+  'settings-browser': async () => {
+    openSettingsPage({ section: 'browser' })
+    return (await waitFor(() => document.getElementById(rowDomId('browser-control')))) ? '.settings-view' : null
+  },
+  // The workspace header's browser menu, open: the allowed browser (the default), No browser, Browser settings.
+  'workspace-browser-menu': async (f) => {
+    openWorkspace(f)
+    const trigger = await waitFor(() => [...document.querySelectorAll<HTMLElement>('.header-actions button')].find((b) => b.textContent?.includes('Chrome · Work')) ?? null)
+    if (!trigger) return null
+    trigger.click()
+    await waitFor(element('.ui-menu [role="menuitemradio"]'))
+    return '.ui-menu'
   },
   automations: () => (openAutomations(), '.automations-view'),
   // A built-in template open as its own page.
@@ -711,6 +738,7 @@ export function installScreens(): void {
       baseLayout()
       await windowLayout('panes')
       await flowsSetting(FLOW_SCREENS.includes(screen))
+      await browserSetting(BROWSER_SCREENS.includes(screen))
       const selector = await go(fixture)
       if (!selector || !(await waitFor(element(selector)))) return { skipped: `${screen} did not render${selector ? ` (${selector})` : ''}` }
       await settle()

@@ -1974,7 +1974,6 @@ export const es: Catalogue = {
   'settings.browser.install.step1': 'Haz clic en Mostrar carpeta de la extensión.',
   'settings.browser.install.step2': 'En Chrome abre chrome://extensions (en Edge: edge://extensions) y activa el modo de desarrollador.',
   'settings.browser.install.step3': 'Haz clic en Cargar descomprimida y elige la carpeta.',
-  'settings.browser.install.folder': 'Carpeta de la extensión',
   'settings.browser.install.reveal': 'Mostrar carpeta de la extensión',
   'settings.browser.list.title': 'Navegadores',
   'settings.browser.list.help': 'Los navegadores que se conectaron a Foreman. Permite uno antes de que los agentes puedan usarlo.',

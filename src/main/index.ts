@@ -667,6 +667,8 @@ async function main(): Promise<void> {
     cliSocket: () => (cliServer ? socketPath(app.getPath('userData')) : null),
     // Foreman for Chrome: registers the native-messaging host for the Chromium browsers on this computer (browserHostInstall.ts).
     installBrowserHost: async () => {
+      // A screenshot run or the demo has a throwaway data folder: never point the computer's browsers at it.
+      if (screensRoot || DEMO) return
       const dataDir = app.getPath('userData')
       const script = path.join(app.getAppPath(), 'out', 'main', 'browserHost.js')
       if (!existsSync(script) && !app.isPackaged) return

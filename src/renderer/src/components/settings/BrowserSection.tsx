@@ -2,7 +2,7 @@
 // browsers, how to load the extension, which browsers have connected (allow, make default, rename, forget) and the sites
 // no agent may open or act on. The browser list is the store's `browserLinks`, kept current by the browser-links event.
 import { FolderOpen } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { BROWSER_KIND_LABEL, DEFAULT_BLOCKED_SITES, type BrowserLinkInfo } from '../../../../shared/browserLink'
 import { useT } from '../../i18n'
 import { api, attempt, useStore } from '../../store'
@@ -42,17 +42,9 @@ export function BrowserPage() {
   )
 }
 
-/** The three steps to load the unpacked extension, with its folder and a button that shows it in the file manager. */
+/** The three steps to load the unpacked extension, and a button that shows its folder in the file manager (and registers the host). */
 function InstallSteps() {
   const t = useT()
-  const [folder, setFolder] = useState('')
-  useEffect(() => {
-    let live = true
-    void api.browserExtensionFolder().then((next) => live && setFolder(next), () => undefined)
-    return () => {
-      live = false
-    }
-  }, [])
   return (
     <div className="browser-install">
       <ol className="browser-steps">
@@ -60,9 +52,6 @@ function InstallSteps() {
         <li>{t('settings.browser.install.step2')}</li>
         <li>{t('settings.browser.install.step3')}</li>
       </ol>
-      <Field label={t('settings.browser.install.folder')}>
-        {(control) => <TextInput {...control} mono readOnly value={folder} onFocus={(e) => e.currentTarget.select()} />}
-      </Field>
       <Button icon={<FolderOpen size={13} />} onClick={() => void attempt(() => api.revealBrowserExtension())}>
         {t('settings.browser.install.reveal')}
       </Button>
