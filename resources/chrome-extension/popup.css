@@ -1,0 +1,154 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1d1d1f;
+  --muted: #6b6b70;
+  --line: #e3e3e6;
+  --primary: #1d1d1f;
+  --primary-fg: #ffffff;
+  --connected: #1e7b43;
+  --waiting: #9a4f00;
+  --focus: #1a5fd6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e20;
+    --fg: #f2f2f4;
+    --muted: #a1a1a8;
+    --line: #3a3a3f;
+    --primary: #f2f2f4;
+    --primary-fg: #1e1e20;
+    --connected: #5fc68a;
+    --waiting: #f0a04b;
+    --focus: #7aa7ff;
+  }
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  width: 340px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.head img {
+  width: 20px;
+  height: 20px;
+}
+
+.brand {
+  flex: 1;
+  font-weight: 600;
+}
+
+.status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status[data-state='connected'] {
+  color: var(--connected);
+}
+
+.status[data-state='waiting'] {
+  color: var(--waiting);
+}
+
+.body {
+  padding: 12px 14px;
+}
+
+.block .title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.block .detail {
+  margin: 0;
+  color: var(--muted);
+}
+
+.groups {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.group:first-child {
+  border-top: 0;
+}
+
+.group-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-agent {
+  max-width: 110px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-working {
+  font-size: 12px;
+  color: var(--connected);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.browser-id {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+button.primary {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--primary);
+  color: var(--primary-fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+button.primary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

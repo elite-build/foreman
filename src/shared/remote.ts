@@ -116,6 +116,8 @@ export const LOCAL_METHODS: ReadonlySet<Method> = new Set<Method>([
   'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated',
   'saveDiagnostics', 'reportDiagnostics', 'fullDiskAccess', 'openFullDiskAccessSettings', 'cliStatus', 'installCli',
   'langfuseExportStatus', 'setLangfuseExport', 'sendEarlierToLangfuse',
+  // Foreman for Chrome: the browsers on this computer, which it alone allows.
+  'browserLinks', 'allowBrowser', 'forgetBrowser', 'browserExtensionFolder', 'revealBrowserExtension',
   'sttStart', 'sttAudio', 'sttStop', 'sttCancel', 'sttModelStatus', 'sttDownloadModel',
   'openExternal', 'takeLaunchFolders',
   'computers', 'viewComputer', 'answerControlRequest', 'disconnectController'

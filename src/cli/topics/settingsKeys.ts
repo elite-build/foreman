@@ -19,7 +19,8 @@ const PAGE_TITLES: Record<SettingsPage, string> = {
   usage: 'Usage',
   data: 'Data',
   devices: 'Devices',
-  cloud: 'Remote workspaces'
+  cloud: 'Remote workspaces',
+  browser: 'Browser'
 }
 
 const TAB_TITLES: Record<RepoTab, string> = {

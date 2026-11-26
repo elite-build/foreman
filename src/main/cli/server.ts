@@ -2,6 +2,7 @@
 // (methods.ts) lists, each under its tier (policy.ts), not the rest of the API.
 import { chmodSync, rmSync } from 'node:fs'
 import net from 'node:net'
+import { BROWSER_HOST_METHOD } from '../../shared/browserLink'
 import type { CliErrorCode, CliProgressFrame, CliReplyV2, CliRequest, CliRequestV2, CliResponse } from '../../cli/protocol'
 import { CliCodedError, type CliHost } from './host'
 import { METHODS, type CliContext } from './methods'
@@ -84,6 +85,14 @@ export function startCliServer(socket: string, host: CliHost): Promise<net.Serve
         const params = request.params as { grant?: unknown; service?: unknown } | null | undefined
         if (typeof params?.grant !== 'string' || typeof params.service !== 'string') return void conn.end(`${JSON.stringify({ bridgeError: 'Malformed bridge request.' })}\n`)
         return host.bridge(conn, { grant: params.grant, service: params.service }, buffer.slice(end + 1))
+      }
+      // Foreman for Chrome's native-messaging host (src/cli/browserHostMain.ts): the connection then carries the browser's JSON lines.
+      // The token is checked where the app keeps it (index.ts), before the connection reaches the browser link.
+      if (request.method === BROWSER_HOST_METHOD) {
+        if (!host.browserHost) return void conn.end(`${JSON.stringify({ ok: false, error: 'This version of Foreman has no browser link.' })}\n`)
+        const token = (request.params as { token?: unknown } | null | undefined)?.token
+        if (typeof token !== 'string') return void conn.end(`${JSON.stringify({ ok: false, error: 'Malformed browser request.' })}\n`)
+        return host.browserHost(conn, { token }, buffer.slice(end + 1))
       }
       // A waiting command that goes away stops its wait; the turn is unaffected.
       const gone = new AbortController()

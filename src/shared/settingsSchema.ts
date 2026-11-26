@@ -18,7 +18,7 @@ import { SCRIPT_SHELLS, SHELL_CHOICES } from './shells'
 import { ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from './terminalTabs'
 import type { BranchPrefixType, CloudSettings, ColorVision, HomeLayout, PaneSide, Settings, SoundSetting, TerminalPlacement, ThemeSetting, WindowLayout } from './types'
 
-export type SettingsPage = 'general' | 'account' | 'appearance' | 'models' | 'agents' | 'git' | 'environment' | 'experimental' | 'advanced' | 'usage' | 'data' | 'devices' | 'cloud' | 'accessibility'
+export type SettingsPage = 'general' | 'account' | 'appearance' | 'models' | 'agents' | 'git' | 'environment' | 'experimental' | 'advanced' | 'usage' | 'data' | 'devices' | 'cloud' | 'accessibility' | 'browser'
 
 /** The pages in the order the Settings window (and `settings list`) shows them; Devices sits inside Data & devices. */
 export const SETTINGS_PAGES: readonly SettingsPage[] = ['general', 'account', 'appearance', 'accessibility', 'models', 'agents', 'git', 'environment', 'experimental', 'advanced', 'usage', 'data', 'devices', 'cloud']

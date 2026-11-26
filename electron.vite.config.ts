@@ -16,6 +16,8 @@ export default defineConfig({
           cli: 'src/cli/index.ts',
           // The MCP bridge alone (src/cli/bridgeMain.ts): the app starts one per agent turn, so it leaves out the rest of the CLI.
           bridge: 'src/cli/bridgeMain.ts',
+          // The native-messaging host for Foreman for Chrome (src/cli/browserHostMain.ts), started by Chrome, alone like the bridge.
+          browserHost: 'src/cli/browserHostMain.ts',
           cursorWorker: 'src/main/cursorWorker.ts',
           sttHelper: 'src/main/speech/sttHelper.ts',
           sandboxHost: 'src/main/agentHost/sandboxHost.ts',

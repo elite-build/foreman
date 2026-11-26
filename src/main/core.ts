@@ -162,6 +162,8 @@ import { AGENT_TOOL_SERVICES, cleanWorkspaceIntegrations, toolsOn, type Workspac
 import { IntegrationBridge } from './integrationBridge'
 import { ForemanActions } from './foremanActions'
 import { ForemanMcp } from './foremanMcp'
+import { BrowserLink } from './browserLink'
+import { browserFor, DEFAULT_BLOCKED_SITES, isBlockedUrl, type BrowserMethod, type BrowserParams, type BrowserSnapshot, type BrowserTab, type BrowserToolName } from '../shared/browserLink'
 import { SlackRules } from './slackRules'
 import { SpeechService } from './speech'
 import type { HelperLaunch } from './speech/local'
@@ -233,6 +235,10 @@ export interface Host {
   // socket it connects to. Absent: agents get no integration tools.
   bridgeLaunch?(): { command: string; args: string[]; env: Record<string, string> } | null
   cliSocket?(): string | null
+  // Foreman for Chrome: registers the native-messaging host for this computer's Chromium browsers (browserHostInstall.ts), and
+  // the unpacked extension's folder for Chrome's "Load unpacked".
+  installBrowserHost?(): Promise<void>
+  browserExtensionFolder?(): string
   // Idle five minutes or more, or the screen is locked (Slack rules "only when I'm away").
   away?(): boolean
   // Phase 4: whether the OS reports a screen reader (Electron's accessibilitySupportEnabled).
@@ -480,6 +486,8 @@ export class Core {
   readonly bridge: IntegrationBridge
   readonly foremanActions: ForemanActions
   readonly foremanMcp: ForemanMcp
+  // Foreman for Chrome: the browsers connected through the native-messaging host, and the requests to them (browserLink.ts).
+  readonly browserLink: BrowserLink
   // Cloud workspaces' sandboxes on Vercel. Inert until a Vercel connection and a cloud workspace exist.
   readonly sandboxes: SandboxManager
   // Cloud workspaces, phase 2: their turns run in the agent host inside each sandbox (cloud/turnHost.ts).
@@ -794,9 +802,29 @@ export class Core {
       launch: () => host.bridgeLaunch?.() ?? null,
       socket: () => host.cliSocket?.() ?? null,
       flowsOn: () => Boolean(store.state.settings.flows),
-      chatHistory: (sessionId, args) => this.sessions.readChatHistory(sessionId, args)
+      chatHistory: (sessionId, args) => this.sessions.readChatHistory(sessionId, args),
+      browser: {
+        enabled: () => Boolean(store.state.settings.browserControl),
+        call: (workspaceId, tool, args) => this.browserTool(workspaceId, tool, args)
+      }
     })
     this.sessions.foremanMcp = this.foremanMcp
+    this.browserLink = new BrowserLink({
+      settings: () => store.state.settings,
+      saveSettings: (patch) => {
+        void this.api.updateSettings(patch).catch((err: unknown) => console.error('Foreman for Chrome: could not save its settings:', err))
+      },
+      changed: (links) => host.broadcast({ type: 'browser-links', links }),
+      // The workspaces whose agents use this browser: each one's tab group in it.
+      groups: (browserId) => {
+        const links = this.browserLink.links()
+        const fallback = store.state.settings.browserDefault
+        return store.state.workspaces
+          .filter((w) => !w.archivedAt && browserFor(w.browser, fallback, links)?.id === browserId)
+          .map((w) => ({ group: w.id, title: w.name }))
+      }
+    })
+    if (store.state.settings.browserControl) void this.registerBrowserHost()
     this.assistant.foremanActions = this.foremanActions
     // Cloud workspaces, phase 2b: a cloud workspace's turns go to its sandbox's host.
     this.sessions.cloudHost = this.cloudTurns
@@ -3547,6 +3575,72 @@ export class Core {
    * #130: a Git backup's settings, accounts first so its loadouts can name them. The backup's accounts replace these;
    * the keys of any account that goes with them are forgotten (a backup never holds keys).
    */
+  /** Foreman for Chrome: register the native-messaging host. Failure is logged, not thrown: the browser just can't connect yet. */
+  private async registerBrowserHost(): Promise<void> {
+    try {
+      await this.host.installBrowserHost?.()
+    } catch (err) {
+      console.error('Foreman for Chrome: could not register the native-messaging host:', err)
+    }
+  }
+
+  /** Foreman for Chrome: one browser tool call (foremanMcp.ts), in the workspace's browser. Blocked sites are refused before the extension sees them. */
+  private async browserTool(workspaceId: string, tool: BrowserToolName, args: Record<string, unknown>): Promise<{ text?: string; png?: string }> {
+    const settings = this.store.state.settings
+    const ws = this.store.state.workspaces.find((w) => w.id === workspaceId)
+    if (!ws) throw new Error('This workspace is gone.')
+    const browser = browserFor(ws.browser, settings.browserDefault, this.browserLink.links())
+    if (!browser) throw new Error('No browser is set up for this workspace. Ask the user to turn on Settings → Browser, install Foreman for Chrome and allow it.')
+    const blocked = settings.browserBlocked ?? DEFAULT_BLOCKED_SITES
+    const refuseUrl = (url: string): void => {
+      if (!isBlockedUrl(url, blocked)) return
+      let host = url
+      try {
+        host = new URL(url).hostname || url
+      } catch {
+        // Not a URL at all: named as given.
+      }
+      throw new Error(`Foreman blocks agents from ${host}.`)
+    }
+    const group = ws.id
+    const call = (method: BrowserMethod, params: BrowserParams) => this.browserLink.call(browser.id, method, params)
+    if ((tool === 'browser_open' || tool === 'browser_navigate') && typeof args.url === 'string') refuseUrl(args.url)
+    if (typeof args.tabId === 'number') {
+      // The extension answers { tabs: [...] } (shared/browserLink.ts); a tab that isn't in the group is refused by the extension itself.
+      const listed = (await call('tabs', { group })) as { tabs?: BrowserTab[] } | null
+      const tab = Array.isArray(listed?.tabs) ? listed.tabs.find((t) => t.tabId === args.tabId) : undefined
+      if (tab) refuseUrl(tab.url)
+    }
+    const tabId = args.tabId as number
+    switch (tool) {
+      case 'browser_tabs':
+        return { text: JSON.stringify(await call('tabs', { group })) }
+      case 'browser_open':
+        // Every workspace's group is titled Foreman (each keeps its own colour); the popup lists them by workspace.
+        return { text: JSON.stringify(await call('open', { group, groupTitle: 'Foreman', url: args.url as string })) }
+      case 'browser_navigate':
+        return { text: JSON.stringify(await call('navigate', { group, tabId, url: args.url as string })) }
+      case 'browser_snapshot': {
+        const snap = (await call('snapshot', { group, tabId })) as BrowserSnapshot
+        return { text: `Title: ${snap.title}\nURL: ${snap.url}\n\n${snap.text}` }
+      }
+      case 'browser_click':
+        return { text: JSON.stringify(await call('click', { group, tabId, ref: args.ref as string })) }
+      case 'browser_type':
+        return { text: JSON.stringify(await call('type', { group, tabId, ref: args.ref as string, text: args.text as string, ...(args.submit === true ? { submit: true } : {}) })) }
+      case 'browser_press':
+        return { text: JSON.stringify(await call('press', { group, tabId, key: args.key as string })) }
+      case 'browser_screenshot': {
+        const shot: unknown = await call('screenshot', { group, tabId })
+        const png = typeof shot === 'string' ? shot : (shot as { png?: unknown } | null)?.png
+        if (typeof png !== 'string' || !png) throw new Error('The browser sent no screenshot.')
+        return { png: png.replace(/^data:image\/png;base64,/, '') }
+      }
+      case 'browser_close':
+        return { text: JSON.stringify(await call('close', { group, tabId })) }
+    }
+  }
+
   private async restoreSettings(patch: Partial<Settings>): Promise<Settings> {
     const { agentInstances, ...rest } = patch
     if (agentInstances !== undefined) {
@@ -4769,6 +4863,21 @@ export class Core {
       const patch = Object.fromEntries(keys.map((key) => [key, defaults[key]])) as Partial<Settings>
       return this.api.updateSettings(patch)
     },
+    // Foreman for Chrome (browserLink.ts): the browsers Foreman knows, allowing or forgetting one, and the extension's folder.
+    browserLinks: async () => this.browserLink.links(),
+    allowBrowser: async (id, name) => this.browserLink.allow(id, name),
+    forgetBrowser: async (id) => this.browserLink.forget(id),
+    browserExtensionFolder: async () => {
+      await this.registerBrowserHost()
+      return this.host.browserExtensionFolder?.() ?? ''
+    },
+    revealBrowserExtension: async () => {
+      await this.registerBrowserHost()
+      const folder = this.host.browserExtensionFolder?.()
+      if (!folder) throw new Error('Foreman for Chrome isn’t in this build.')
+      if (this.host.revealPath) this.host.revealPath(folder)
+      else await this.host.openPath(folder)
+    },
     updateSettings: async (patch) => {
       // The checklist: milestones already reached stay (the first time stands); the patch can only add them and hide or show the card.
       if ('onboarding' in patch) {
@@ -4833,6 +4942,7 @@ export class Core {
         patch = rest
         await this.configureAgentAccess(agentAccessEnabled ?? this.store.state.settings.agentAccessEnabled, agentAccessPort)
       }
+      const wasBrowserControl = Boolean(this.store.state.settings.browserControl)
       const settings: Settings = { ...this.store.state.settings, ...patch }
       this.store.state.settings = settings
       // A higher limit (or none) starts the turns queued for an agent slot.
@@ -4845,6 +4955,10 @@ export class Core {
       // Turning Flows off stops the runs in flight as Stop would, saying why.
       if (patch.flows === false) void this.flows.stopAll('Stopped: Flows were turned off in Settings → Experimental.')
       if (patch.scriptShell) setScriptShell(patch.scriptShell)
+      // Foreman for Chrome turned on: register the native-messaging host so the extension can connect.
+      if (patch.browserControl === true && !wasBrowserControl) void this.registerBrowserHost()
+      // The allowed browsers changed however they were saved: windows hear the new list.
+      if ('browsers' in patch) this.host.broadcast({ type: 'browser-links', links: this.browserLink.links() })
       this.store.save()
       if (patch.theme) this.host.applyTheme(settings.theme)
       if ('language' in patch) this.host.applyLanguage?.()
@@ -5022,6 +5136,7 @@ export class Core {
     if (!keepHosted) this.agentHost.close()
     // Cloud workspaces' turns go on in their sandboxes; the app only lets go.
     this.foremanMcp.close()
+    this.browserLink.close()
     this.cloudTurns.close()
     this.store.close()
   }

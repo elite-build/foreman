@@ -15,6 +15,7 @@ import { AppearancePage } from './AppearancePage'
 import { PartView, rowDomId, SavedHint, type PartViewValue } from './controls'
 import { EnvironmentPage } from './EnvironmentPage'
 import { settingFlashParts } from './flashParts'
+import { BrowserPage } from './BrowserSection'
 import { ExperimentalPage } from './ExperimentalPage'
 import { CloudPage } from './CloudPage'
 import { GeneralPage } from './GeneralPage'
@@ -278,5 +279,7 @@ function SectionPage({ page }: { page: PageRef }) {
       return <CloudPage />
     case 'spaces':
       return <SpacesPage />
+    case 'browser':
+      return <BrowserPage />
   }
 }

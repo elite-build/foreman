@@ -285,6 +285,8 @@ export type CliRequest = (
   | { method: 'decide'; params: DecideParams }
   // The integration bridge: the connection then carries MCP JSON-RPC lines both ways (see src/cli/bridge.ts).
   | { method: 'mcp-bridge'; params: { grant: string; service: string } }
+  // Foreman for Chrome's native-messaging host: the connection then carries the browser's JSON lines (src/main/browserLink.ts).
+  | { method: 'browser-host'; params: { token: string } }
 ) & { caller?: TurnCaller }
 
 /** `foreman status`: one row per live workspace. */
