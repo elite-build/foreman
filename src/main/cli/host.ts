@@ -73,6 +73,8 @@ export interface CliHost {
   // Integrations: an agent's `foreman mcp-bridge` connection. It stays open and carries MCP JSON-RPC lines;
   // `rest` is whatever arrived after the first line.
   bridge?(conn: net.Socket, params: { grant: string; service: string }, rest: string): void
+  // Foreman for Chrome: a native-messaging host's connection (shared/browserLink.ts). The app checks the token; `rest` is what came after the first line.
+  browserHost?(conn: net.Socket, params: { token: string }, rest: string): void
   // The performance meter's report (docs/telemetry.md), for `foreman app perf`; `reset` starts its counters again
   // after the report. Absent (tests, the assistant's in-process host): the command says the app keeps none.
   perf?(options?: { reset?: boolean }): PerfReport

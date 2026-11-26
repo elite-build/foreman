@@ -141,6 +141,9 @@ export const METHOD_SCOPES = {
   setRepoIntegrationOptions: 'admin', applyConnectionToRepos: 'admin', acceptIntegrationSuggestion: 'admin', importRepoGithubToken: 'admin',
   saveSlackRule: 'admin', consentSlackRule: 'admin', deleteSlackRule: 'admin', linkPerson: 'admin', unlinkPerson: 'admin',
 
+  // Foreman for Chrome: the browsers and the extension are this computer's window's business, never a phone's.
+  browserLinks: 'window', allowBrowser: 'window', forgetBrowser: 'window', browserExtensionFolder: 'window', revealBrowserExtension: 'window',
+
   // Backups and data.
   backupNow: 'admin', configureGitBackup: 'admin', createGitBackupGithubRepo: 'admin', gitBackupNow: 'admin', previewGitBackup: 'admin',
   restoreGitBackup: 'admin', deleteLegacyFiles: 'admin',
@@ -238,7 +241,7 @@ const EVENT_REACH = {
   'chat-item': 'chat', 'chat-append': 'chat', 'chat-reset': 'chat',
   'pty-data': 'terminal', 'pty-exit': 'terminal', 'pty-state': 'terminal', 'setup-log': 'terminal', 'cloud-build-log': 'terminal',
   'clone-progress': 'terminal', 'auto-run': 'terminal',
-  'browser-open': 'window', 'browser-state': 'window', 'browser-shortcut': 'window', 'show-workspace': 'window', 'show-setting': 'window',
+  'browser-open': 'window', 'browser-state': 'window', 'browser-links': 'window', 'browser-shortcut': 'window', 'show-workspace': 'window', 'show-setting': 'window',
   'report-problem': 'window', tour: 'window', 'launch-folders': 'window', 'quit-requested': 'window', 'open-link': 'window',
   navigate: 'window', 'stt-partial': 'window', 'stt-error': 'window', 'stt-model': 'window', 'window-visibility': 'window',
   computers: 'window', 'computer-notify': 'window', 'computer-left': 'window', 'langfuse-unreachable': 'window'

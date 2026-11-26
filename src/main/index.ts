@@ -1,7 +1,7 @@
 import { ForemanDelegation } from './foremanDelegation'
 import { ForemanCli } from './foremanCli'
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, protocol, safeStorage, shell, systemPreferences } from 'electron'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -11,7 +11,8 @@ import type { Server } from 'node:net'
 import { API_METHODS, SIGNAL_METHODS, type Api, type MainEvent, type Signals } from '../shared/types'
 import { WINDOW_SESSION } from '../shared/api'
 import { ApiDispatcher } from './api/dispatch'
-import { socketPath } from '../cli/protocol'
+import { socketPath, tokenPath } from '../cli/protocol'
+import { installBrowserHost } from './browserHostInstall'
 import { shimPath } from './cliInstall'
 import { ensureCliToken, startCliServer, type CliHost } from './cliServer'
 import { resolveLoadout } from './cli/agents'
@@ -647,6 +648,15 @@ async function main(): Promise<void> {
       return existsSync(script) || app.isPackaged ? { command: process.execPath, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } } : null
     },
     cliSocket: () => (cliServer ? socketPath(app.getPath('userData')) : null),
+    // Foreman for Chrome: registers the native-messaging host for the Chromium browsers on this computer (browserHostInstall.ts).
+    installBrowserHost: async () => {
+      const dataDir = app.getPath('userData')
+      const script = path.join(app.getAppPath(), 'out', 'main', 'browserHost.js')
+      if (!existsSync(script) && !app.isPackaged) return
+      await installBrowserHost({ dataDir, execPath: process.execPath, script, socket: socketPath(dataDir), tokenFile: tokenPath(dataDir) })
+    },
+    // The unpacked extension's folder, for Chrome's "Load unpacked" (the packaged copy ships beside the app, see package.json extraResources).
+    browserExtensionFolder: () => (app.isPackaged ? path.join(process.resourcesPath, 'chrome-extension') : path.join(app.getAppPath(), 'resources', 'chrome-extension')),
     away: () => ['idle', 'locked'].includes(powerMonitor.getSystemIdleState(300)),
     screenReader: () => app.accessibilitySupportEnabled,
     // Speech to text. macOS asks once (and answers false for good if it was refused); Windows has a privacy switch we can read.
@@ -895,6 +905,14 @@ async function main(): Promise<void> {
     bridge: (conn, params, rest) => params?.service === 'app'
       ? started.foremanMcp.attach(conn, params, rest)
       : started.bridge.attach(conn, params, rest),
+    // Foreman for Chrome: a native-messaging host's connection, which carries the browser's JSON lines. The token is the
+    // launch token the host read from the data folder; anything else is ended before it reaches the browser link.
+    browserHost: (conn, params, rest) => {
+      const given = Buffer.from(params.token)
+      const expected = Buffer.from(cliToken)
+      if (given.length !== expected.length || !timingSafeEqual(given, expected)) return void conn.end()
+      started.browserLink.attach(conn, rest)
+    },
     // A window opened just now (macOS keeps running with none) hears events once its page loads.
     reveal: (workspaceId) => sendToWindow({ type: 'show-workspace', workspaceId }),
     showSetting: (id) => sendToWindow({ type: 'show-setting', id }),

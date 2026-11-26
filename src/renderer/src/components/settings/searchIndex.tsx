@@ -14,6 +14,7 @@ import {
   KeyRound,
   LayoutGrid,
   MonitorSmartphone,
+  Globe,
   Palette,
   Plug,
   Network,
@@ -35,6 +36,7 @@ import { CATEGORIES, PAGE_KEYWORDS, REPO_TAB_LABELS, SETTINGS, type SettingEntry
 
 export const PAGE_ICONS: Record<PersonalSection | 'agents', LucideIcon> = {
   quick: LayoutGrid,
+  browser: Globe,
   general: Settings2,
   account: CircleUser,
   integrations: Plug,
