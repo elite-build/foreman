@@ -1,10 +1,16 @@
 // `npm run dev`: electron-vite's development app, with any other arguments passed on to it.
-//   npm run dev demo [reset]
+//   npm run dev demo [<scenario>] [reset] [--with <part,…>] [--without <part,…>]
+//   npm run dev demo list
 // `demo` starts it on the demo data instead (FOREMAN_DEMO=1, src/main/demo.ts): the screenshot fixture in a folder kept
 // between launches, with nothing reaching the network. `reset` throws that folder away and seeds it again.
+// A scenario (src/shared/scenarios.ts: `channels`, `hire-employee`, …; `full` when none is named) says what the demo starts
+// with and which screen it opens on, in a folder of its own; `--with` and `--without` add and leave out parts of it
+// (`npm run dev demo -- --without lumen,flows`: npm needs the `--` before a flag). `list` prints the scenarios and parts.
+// `npm run pr:screens -- capture --scenario <name>` takes a pull request's screenshots of the same data.
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { scenarioNames, scenariosText } from './scenarios.mjs'
 
 // A new worktree has no node_modules (Foreman makes each workspace without its ignored files): install them first.
 if (!existsSync('node_modules/.bin/electron-vite')) {
@@ -21,9 +27,21 @@ const env = { ...process.env }
 if (args[0] === 'demo') {
   args.shift()
   env.FOREMAN_DEMO = '1'
-  if (args[0] === 'reset') {
+  if (args[0] === 'list') {
+    console.log(scenariosText())
+    process.exit(0)
+  }
+  // The scenario and `reset`, in either order, then the parts to add and leave out; the rest is electron-vite's.
+  const names = scenarioNames()
+  while (args.length) {
+    if (args[0] === 'reset') env.FOREMAN_DEMO_RESET = '1'
+    else if (names.includes(args[0])) env.FOREMAN_SCENARIO = args[0]
+    else if ((args[0] === '--with' || args[0] === '--without') && args[1]) env[args[0] === '--with' ? 'FOREMAN_SCENARIO_WITH' : 'FOREMAN_SCENARIO_WITHOUT'] = args.splice(1, 1)[0]
+    else if (!args[0].startsWith('-')) {
+      console.error(`foreman: no demo scenario called "${args[0]}". \`npm run dev demo list\` prints them.`)
+      process.exit(1)
+    } else break
     args.shift()
-    env.FOREMAN_DEMO_RESET = '1'
   }
 }
 // npm puts node_modules/.bin on PATH; the shell finds electron-vite.cmd on Windows.

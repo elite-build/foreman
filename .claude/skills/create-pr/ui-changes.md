@@ -8,9 +8,18 @@ The screenshot fixture (`npm run screens`, `src/main/screenshots.ts`) draws the 
 
 When you changed something in `ui/` or `tokens.css` that many screens use, capture every screen once (`--only` with the whole list) and look for differences you didn't intend. Those are regressions to fix before the PR, not evidence.
 
+Some areas need more than the fixture holds, and have a **scenario** for it (`src/shared/scenarios.json`; `npm run dev demo list` prints them). A scenario starts the fixture with more data, or plays work until it rests, and names the screens that show its area. Use the scenario when the change is in its area:
+
+| The change is in | Scenario | What its screens show |
+| --- | --- | --- |
+| A project's channel, the Channels page or sidebar, a wait card, a part's state | `channels` | The demo's channel stories, played by the branch's own services until nothing moves: questions to answer, a plan to approve, a part's check, a part that didn't finish, a paused project, one held at a usage limit, a final check |
+| Adding an AI employee, a job's preview, a draft's approval | `hire-employee` | The jobs to pick from, one picked, Compare jobs, Write your own, a draft's plan, an employee's page, the Team page |
+
+`npm run dev demo <scenario>` opens the app on the same data and on the scenario's first screen, to click through what the screenshots will show.
+
 When no fixture screen shows the change, in this order:
 
-1. Extend the fixture if the screen is worth keeping (a new state in `screenshots.ts`, `renderer/src/screens.ts`), as part of this change.
+1. Extend the fixture if the screen is worth keeping (a new state in `screenshots.ts`, `renderer/src/screens.ts`), as part of this change. A state only work can reach (a run, a wait, a hold) goes in a scenario: add the story or the stage to `src/main/demoEmployees.ts`, its screen to `renderer/src/screens.ts` and `CHANNEL_SCREENS`, and name it in `scenarios.json`. Do not write "No screenshot: the fixture shows none of the new states" for a channel or an employee: add the state.
 2. Otherwise take the shot by hand from `npm run dev` with `FOREMAN_DATA_DIR` set to an empty temporary folder. Never from your own data folder: the repository is public and a real window shows real repository names, paths, branch names and chat text.
 3. Otherwise describe the change in words, and write "No screenshot: <why>" in the UI section.
 
@@ -20,7 +29,16 @@ When no fixture screen shows the change, in this order:
 npm run pr:screens -- capture --only settings-general,home
 ```
 
+For a scenario's area, name the scenario instead; `--only` with it takes some of its screens rather than all:
+
+```sh
+npm run pr:screens -- capture --scenario channels
+npm run pr:screens -- capture --scenario channels --only channel-check,channel-stuck
+```
+
 This takes the screens from the merge base with `origin/main` (in a temporary worktree that shares this checkout's `node_modules`) and from your working tree, then compares them. It prints three folders: `before/`, `after/` and `diff/`. Each screen is taken in light and dark; `home`, `workspace-chat`, `tiles` and `settings-agents` also come in two colour-vision modes and at 200%.
+
+With `--scenario channels` each side plays the stories with its own code, so a change to what the services write shows as well as a change to how it is drawn. A merge base from before the scenario existed has no "before": the script says so and takes "after" alone.
 
 Look at each pair yourself before you publish it. Two known differences have nothing to do with your change: the host's agent sign-in state (an "isn't signed in" badge) and a button under the pointer drawn in its hover state. If the only difference is one of those, it isn't evidence.
 

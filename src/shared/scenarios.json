@@ -1,0 +1,29 @@
+{
+  "parts": {
+    "team": "Acme’s billing, docs and mobile repositories, and Priya, Ravi, Uma, Quinn, Kai and Iris",
+    "lumen": "Lumen, a second and smaller organization, with a chat paused where its account ran out of credits",
+    "usage": "What the accounts last said about their usage, for Settings → Usage",
+    "flows": "Two flow runs that start each time the demo opens. The demo only: a screenshot run starts none",
+    "channels": "Channels at every stage: questions, a plan to approve, a check, a part that didn’t finish, a pause, a usage limit, a final check. The demo plays them over a few minutes; a screenshot run plays them to a standstill first"
+  },
+  "dataParts": ["team", "lumen", "usage"],
+  "scenarios": {
+    "full": {
+      "about": "Everything: two organizations, eight repositories, flows running and channels moving. What `npm run dev demo` opens.",
+      "parts": ["team", "lumen", "usage", "flows", "channels"],
+      "screens": []
+    },
+    "channels": {
+      "about": "A project’s channel at every stage it can wait in, in both organizations.",
+      "parts": ["team", "lumen", "channels"],
+      "open": "channels",
+      "screens": ["channels", "channels-sidebar", "channel-questions", "channel-plan", "channel-check", "channel-stuck", "channel-paused", "channel-limit", "channel-final"]
+    },
+    "hire-employee": {
+      "about": "Adding an AI employee to Acme: the jobs to pick from, one picked, the comparison, writing your own, and a draft to approve.",
+      "parts": [],
+      "open": "new-employee",
+      "screens": ["new-employee", "new-employee-picked", "new-employee-compare", "new-employee-write", "employee-approve", "employee", "team"]
+    }
+  }
+}

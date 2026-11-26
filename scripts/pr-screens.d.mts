@@ -8,3 +8,4 @@ export declare function publishScreens(input: { cwd?: string; files: string[]; f
 export declare function removeLink(link: string): void
 export declare function withBaseWorktree<T>(root: string, ref: string, fn: (worktree: string) => T): T
 export declare function parseArgs(argv: string[]): { command: string | undefined; options: Record<string, string>; positional: string[] }
+export declare function knowsScenario(dir: string, name: string): boolean
