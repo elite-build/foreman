@@ -1,6 +1,6 @@
 // G1: ACP launch details (Droid's --settings overlay, Pi's separate ACP program, Antigravity's `agy acp` and its
-// Gemini API key) and ACP session modes (an agent's declared plan mode drives the Plan chip). Every agent here
-// is a fake: no real Droid, pi-acp or agy ran, so these prove Foreman's side only.
+// Gemini API key, Grok Build's `grok agent stdio` and its sign-in, Hermes Agent's `hermes acp`) and ACP session modes
+// (an agent's declared plan mode drives the Plan chip). Every agent here is a fake: no real Droid, pi-acp, agy, grok or hermes ran, so these prove Foreman's side only.
 import * as acp from '@agentclientprotocol/sdk/unstable'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -17,6 +17,7 @@ import {
   droidLaunch,
   droidSettings,
   expectedAgentNote,
+  grokAuthMethod,
   piEnv,
   type LaunchEnv
 } from '../src/main/agents/acp/catalogDrivers'
@@ -302,6 +303,93 @@ describe('G1 · Antigravity through `agy acp`', () => {
     await createAcpDriver(config).createTurn(request(await tempDir()), rec.cb).run()
     expect(methods).toEqual(['session/new'])
     expect(rec.results).toEqual([{ ok: true }])
+  })
+})
+
+describe('G1 · Grok Build through `grok agent stdio`', () => {
+  /** A fake `grok agent stdio` that offers xAI's two sign-in methods and logs what Foreman sends. */
+  function grokAgent(methods: string[], metas: unknown[] = [], offered = ['xai.api_key', 'cached_token']) {
+    return () =>
+      acp
+        .agent({ name: 'grok' })
+        .onRequest(acp.methods.agent.initialize, () => ({
+          protocolVersion: acp.PROTOCOL_VERSION,
+          agentCapabilities: {},
+          authMethods: offered.map((id) => ({ id, name: id }))
+        }))
+        .onRequest(acp.methods.agent.authenticate, ({ params }) => {
+          methods.push(`authenticate:${params.methodId}`)
+          metas.push(params._meta)
+          return {}
+        })
+        .onRequest(acp.methods.agent.session.new, () => {
+          methods.push('session/new')
+          return { sessionId: 'g' }
+        })
+        .onRequest(acp.methods.agent.session.prompt, () => ({ stopReason: 'end_turn' }))
+  }
+
+  it('launches grok with `agent stdio`: the configured path, else grok on PATH, else its bare name', () => {
+    const grok = catalogAgent('grok')!
+    expect(grok.level).toBe('chat')
+    expect(acpCommand(grok, '/apps/grok', posix([]))).toEqual({ file: '/apps/grok', args: ['agent', 'stdio'] })
+    expect(acpCommand(grok, undefined, posix(['/opt/bin/grok']))).toEqual({ file: '/opt/bin/grok', args: ['agent', 'stdio'] })
+    expect(acpCommand(grok, undefined, posix([]))).toEqual({ file: 'grok', args: ['agent', 'stdio'] })
+    const win: LaunchEnv = { path: 'C:\\grok', platform: 'win32', pathExt: '.EXE;.CMD', exists: (f) => f === 'C:\\grok\\grok.exe' }
+    expect(acpCommand(grok, undefined, win)).toEqual({ file: 'C:\\grok\\grok.exe', args: ['agent', 'stdio'] })
+  })
+
+  it('picks the API key method only with XAI_API_KEY set and offered, else its saved sign-in, else nothing', () => {
+    const both = { authMethods: [{ id: 'xai.api_key', name: 'API key' }, { id: 'cached_token', name: 'Saved login' }] }
+    expect(grokAuthMethod(both, { XAI_API_KEY: 'xai-key' })).toBe('xai.api_key')
+    expect(grokAuthMethod(both, { XAI_API_KEY: '  ' })).toBe('cached_token')
+    expect(grokAuthMethod(both, {})).toBe('cached_token')
+    expect(grokAuthMethod({ authMethods: [{ id: 'cached_token', name: 'Saved login' }] }, { XAI_API_KEY: 'xai-key' })).toBe('cached_token')
+    expect(grokAuthMethod({ authMethods: [{ id: 'xai.api_key', name: 'API key' }] }, {})).toBeUndefined()
+    expect(grokAuthMethod({ authMethods: [] }, { XAI_API_KEY: 'xai-key' })).toBeUndefined()
+    expect(grokAuthMethod({}, {})).toBeUndefined()
+  })
+
+  it('authenticates headless before the session: the key in API-key mode, the saved login otherwise', async () => {
+    for (const [env, method] of [[{ XAI_API_KEY: 'xai-key' }, 'xai.api_key'], [{}, 'cached_token']] as const) {
+      const methods: string[] = []
+      const metas: unknown[] = []
+      const spawned = { command: [] as { file: string; args: string[]; env: Record<string, string> }[] }
+      const config = acpConfigFor(catalogAgent('grok')!, { connect: inProcess(grokAgent(methods, metas), spawned), launchEnv: posix(['/opt/bin/grok']) })
+      const rec = recorder()
+      await createAcpDriver(config).createTurn(request(await tempDir(), { env: { ...env } }), rec.cb).run()
+      expect(spawned.command.map((c) => [c.file, c.args])).toEqual([['/opt/bin/grok', ['agent', 'stdio']]])
+      expect(methods).toEqual([`authenticate:${method}`, 'session/new'])
+      expect(metas).toEqual([{ headless: true }])
+      expect(rec.results).toEqual([{ ok: true }])
+    }
+  })
+
+  it('offering neither method skips authenticate and still runs the turn', async () => {
+    const methods: string[] = []
+    const config = acpConfigFor(catalogAgent('grok')!, { connect: inProcess(grokAgent(methods, [], [])), launchEnv: posix(['/opt/bin/grok']) })
+    const rec = recorder()
+    await createAcpDriver(config).createTurn(request(await tempDir()), rec.cb).run()
+    expect(methods).toEqual(['session/new'])
+    expect(rec.results).toEqual([{ ok: true }])
+  })
+})
+
+describe('G1 · Hermes Agent through `hermes acp`', () => {
+  it('launches hermes with `acp` and takes the provider keys ticked for it', () => {
+    const hermes = catalogAgent('hermes')!
+    expect(acpCommand(hermes, undefined, posix(['/opt/bin/hermes']))).toEqual({ file: '/opt/bin/hermes', args: ['acp'] })
+    expect(acpCommand(hermes, undefined, posix([]))).toEqual({ file: 'hermes', args: ['acp'] })
+    const win: LaunchEnv = { path: 'C:\\hermes\\bin', platform: 'win32', pathExt: '.EXE;.CMD', exists: (f) => f === 'C:\\hermes\\bin\\hermes.exe' }
+    expect(acpCommand(hermes, undefined, win)).toEqual({ file: 'C:\\hermes\\bin\\hermes.exe', args: ['acp'] })
+    expect(hermes.auth).toMatchObject({ login: { args: ['model'] }, sharedKeys: true, confirmed: true })
+    expect(hermes.auth.apiKey).toBeUndefined()
+  })
+
+  it('declares no plan mode: its session modes are about edit approvals, so Plan stays off', () => {
+    const modes = [{ id: 'default', name: 'Default' }, { id: 'accept_edits', name: 'Accept Edits' }, { id: 'dont_ask', name: "Don't Ask" }]
+    expect(acpPlanMode(modes)).toBeUndefined()
+    expect(capsOf(staticCapabilities('hermes')!)).toMatchObject({ plan: false, approvals: true, rewind: true, mcp: true })
   })
 })
 

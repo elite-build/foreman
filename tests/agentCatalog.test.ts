@@ -48,8 +48,8 @@ describe('agent registry', () => {
     expect(AGENT_CATALOG.filter((a) => a.level === 'full').map((a) => a.id)).toEqual([...FULL_AGENT_IDS])
     expect(AGENT_CATALOG.filter((a) => a.level === 'chat').map((a) => a.id)).toEqual([...CHAT_AGENT_IDS])
     expect(AGENT_CATALOG.filter((a) => a.level === 'terminal').map((a) => a.id)).toEqual([...TERMINAL_AGENT_IDS])
-    expect(CHAT_AGENT_IDS).toHaveLength(10)
-    expect(TERMINAL_AGENT_IDS).toHaveLength(18)
+    expect(CHAT_AGENT_IDS).toHaveLength(12)
+    expect(TERMINAL_AGENT_IDS).toHaveLength(17)
   })
 
   it('gives every agent what its level needs', () => {
@@ -96,11 +96,15 @@ describe('agent registry', () => {
       commandcode: 'cmd acp --skip-onboarding --no-auto-update --trust',
       omp: 'omp acp',
       antigravity: 'agy acp',
-      goose: 'goose acp'
+      goose: 'goose acp',
+      grok: 'grok agent stdio',
+      hermes: 'hermes acp'
     })
-    // These two commands were sourced from agent docs only.
+    // These commands were sourced from agent docs only.
     expect(catalogAgent('antigravity')!.acp!.source).toBe('docs')
     expect(catalogAgent('goose')!.acp!.source).toBe('docs')
+    expect(catalogAgent('grok')!.acp!.source).toBe('docs')
+    expect(catalogAgent('hermes')!.acp!.source).toBe('docs')
     expect(AGENT_CATALOG.filter((a) => a.acp?.source === 'reference').length).toBe(8)
   })
 
@@ -169,8 +173,8 @@ describe('catalog page filters', () => {
     const state = { enabled: (id: string) => ['claude', 'antigravity'].includes(id), installed: (id: string) => ['claude', 'aider'].includes(id) }
     expect(filterCatalog(AGENT_CATALOG, 'enabled', '', state).map((a) => a.id)).toEqual(['claude', 'antigravity'])
     expect(filterCatalog(AGENT_CATALOG, 'installed', '', state).map((a) => a.id)).toEqual(['claude', 'aider'])
-    expect(filterCatalog(AGENT_CATALOG, 'chat', '', state)).toHaveLength(10)
-    expect(filterCatalog(AGENT_CATALOG, 'terminal', '', state)).toHaveLength(18)
+    expect(filterCatalog(AGENT_CATALOG, 'chat', '', state)).toHaveLength(12)
+    expect(filterCatalog(AGENT_CATALOG, 'terminal', '', state)).toHaveLength(17)
     expect(filterCatalog(AGENT_CATALOG, 'all', 'qwen', state).map((a) => a.id)).toEqual(['qwen'])
   })
 })

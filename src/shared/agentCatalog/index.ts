@@ -376,7 +376,7 @@ export type SignInState =
  * G1: agents whose sign-in Foreman looks for on disk (main/agents/signInProbes.ts), from where their docs say they
  * keep it. Found: "Credentials found", with the file; not found: Unknown, never "not signed in".
  */
-export const CREDENTIAL_PROBES = ['qwen', 'copilot', 'amp', 'droid', 'kimi', 'goose', 'pi', 'omp', 'cline', 'kilocode', 'auggie', 'grok', 'vibe'] as const
+export const CREDENTIAL_PROBES = ['qwen', 'copilot', 'amp', 'droid', 'kimi', 'goose', 'pi', 'omp', 'cline', 'kilocode', 'auggie', 'grok', 'hermes', 'vibe'] as const
 
 /** Whether Foreman can ask about this agent's sign-in at all: its own status command, or a credentials probe. */
 export function canCheckSignIn(agent: CatalogAgent): boolean {

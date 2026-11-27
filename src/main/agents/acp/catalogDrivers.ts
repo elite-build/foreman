@@ -4,6 +4,7 @@
 // (acp/index.ts, the one OpenCode uses) with that agent's launch command. What an
 // agent declares when it starts (capabilities, session modes) is remembered
 // for the Agents catalog.
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import { methods as acpMethods } from '@agentclientprotocol/sdk/unstable'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -127,7 +128,29 @@ export function agyUsesApiKey(init: { authMethods?: unknown[] | null }, env: Rec
   return (init.authMethods ?? []).some((m) => (m as { id?: unknown } | null)?.id === 'gemini-api-key')
 }
 
-const AGY_AUTH_TIMEOUT_MS = 20_000
+/**
+ * Grok Build's sign-in method for `authenticate`, chosen as xAI's own ACP example chooses it: `xai.api_key` in API-key mode
+ * (Foreman leaves XAI_API_KEY in the environment then, and strips it for Login) when grok offers it, else its saved
+ * `grok login` (`cached_token`). Undefined when it offers neither: the turn goes on, and grok's own error says what's missing.
+ */
+export function grokAuthMethod(init: { authMethods?: unknown[] | null }, env: Record<string, string | undefined>): string | undefined {
+  const offered = new Set((init.authMethods ?? []).map((m) => (m as { id?: unknown } | null)?.id))
+  if (env.XAI_API_KEY?.trim() && offered.has('xai.api_key')) return 'xai.api_key'
+  return offered.has('cached_token') ? 'cached_token' : undefined
+}
+
+const AUTH_TIMEOUT_MS = 20_000
+
+/** `authenticate`, bounded so a server that never answers can't hold the turn. */
+async function authenticateWithin(agent: acp.ClientContext, params: acp.AuthenticateRequest, failure: string): Promise<void> {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(failure)), AUTH_TIMEOUT_MS)))
+  try {
+    await Promise.race([agent.request(acpMethods.agent.authenticate, params), timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 /** A note when the initialized program differs from the catalog's expected name or minimum version. */
 export function expectedAgentNote(agent: CatalogAgent, info: { name: string; version: string } | undefined | null): string | undefined {
@@ -208,18 +231,21 @@ const LAUNCH_EXTRAS: Record<string, () => Partial<AcpAgentConfig>> = {
     // Login needs nothing: agy reuses its saved Google sign-in. API-key mode selects the key, bounded so a hanging server can't hold the turn.
     afterInitialize: async (agent, init, env) => {
       if (!agyUsesApiKey(init, env)) return
-      let timer: NodeJS.Timeout | undefined
-      const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('Antigravity didn’t accept your Gemini API key in time.')), AGY_AUTH_TIMEOUT_MS)))
-      try {
-        await Promise.race([agent.request(acpMethods.agent.authenticate, { methodId: 'gemini-api-key' }), timeout])
-      } finally {
-        clearTimeout(timer)
-      }
+      await authenticateWithin(agent, { methodId: 'gemini-api-key' }, 'Antigravity didn’t accept your Gemini API key in time.')
     },
     // It follows plain text and treats an embedded resource as something to look up, so the instructions go as text.
     instructions: (text) => [
       { type: 'text', text: `Standing instructions from Foreman. Follow them for this whole session:\n<foreman_standing_instructions>\n${text.trim()}\n</foreman_standing_instructions>` }
     ]
+  }),
+  // Grok Build's own ACP example calls `authenticate` before a session, with the method the client chose, marked `headless` so it
+  // never opens a browser from a turn (signing in is Login's job, in the sign-in terminal). Bounded like Antigravity's.
+  grok: () => ({
+    afterInitialize: async (agent, init, env) => {
+      const methodId = grokAuthMethod(init, env)
+      if (!methodId) return
+      await authenticateWithin(agent, { methodId, _meta: { headless: true } }, 'Grok Build didn’t finish signing in in time.')
+    }
   })
 }
 

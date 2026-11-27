@@ -44,7 +44,9 @@ describe('ACP launch config per Chat agent', () => {
       pi: '/opt/bin/pi-acp',
       commandcode: '/opt/bin/cmd acp --skip-onboarding --no-auto-update --trust',
       omp: '/opt/bin/omp acp',
-      antigravity: '/opt/bin/agy acp'
+      antigravity: '/opt/bin/agy acp',
+      grok: '/opt/bin/grok agent stdio',
+      hermes: '/opt/bin/hermes acp'
     })
   })
 
@@ -81,6 +83,8 @@ describe('ACP launch config per Chat agent', () => {
   it('builds the sign-in command from the agent’s login arguments; unconfirmed and Full agents have none here', () => {
     expect(catalogLoginCommand('kiro', undefined, posix(['/opt/bin/kiro-cli']))).toMatch(/kiro-cli["']? ["']?login["']?$/)
     expect(catalogLoginCommand('antigravity', '/my/agy', posix([]))).toMatch(/\/my\/agy["']?$/)
+    expect(catalogLoginCommand('grok', undefined, posix(['/opt/bin/grok']))).toMatch(/grok["']? login$/)
+    expect(catalogLoginCommand('hermes', undefined, posix(['/opt/bin/hermes']))).toMatch(/hermes["']? model$/)
     expect(() => catalogLoginCommand('kimchi', undefined, posix([]))).toThrow()
     expect(() => catalogLoginCommand('claude', undefined, posix([]))).toThrow()
     expect(() => catalogLoginCommand('aider', undefined, posix([]))).toThrow()

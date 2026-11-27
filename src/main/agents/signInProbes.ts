@@ -286,6 +286,18 @@ const grok: Probe = async (deps) => {
   return lineFilled(deps.read(config), /^api_key$/i) ? found(deps, config) : null
 }
 
+/**
+ * Hermes Agent keeps its keys in `.env` in its home: HERMES_HOME, else %LOCALAPPDATA%\hermes on Windows and ~/.hermes elsewhere
+ * (its environment-variable reference). An OAuth sign-in (`hermes model`, `hermes auth`) is kept somewhere its docs don't name,
+ * so that stays Unknown.
+ */
+const hermes: Probe = async (deps) => {
+  const local = deps.env.LOCALAPPDATA?.trim() || join(deps, deps.home, 'AppData', 'Local')
+  const home = deps.env.HERMES_HOME?.trim() ? dirFrom(deps, 'HERMES_HOME') : deps.platform === 'win32' ? join(deps, local, 'hermes') : join(deps, deps.home, '.hermes')
+  const file = join(deps, home, '.env')
+  return lineFilled(deps.read(file), /_API_KEY$/) ? found(deps, file) : null
+}
+
 const vibe: Probe = async (deps) => {
   const file = join(deps, dirFrom(deps, 'VIBE_HOME', '.vibe'), '.env')
   return lineFilled(deps.read(file), /^(MISTRAL_API_KEY|VIBE_CODE_API_KEY)$/) ? found(deps, file) : null
@@ -295,7 +307,7 @@ const vibe: Probe = async (deps) => {
  * Agents with a credentials probe. Kiro, Devin and Command Code answer through their own status commands
  * (CatalogAgent.auth.login.statusArgs) instead; every other agent stays Unknown.
  */
-export const SIGN_IN_PROBES: Record<string, Probe> = { qwen, copilot, amp, droid, kimi, goose, pi, omp, cline, kilocode, auggie, grok, vibe }
+export const SIGN_IN_PROBES: Record<string, Probe> = { qwen, copilot, amp, droid, kimi, goose, pi, omp, cline, kilocode, auggie, grok, hermes, vibe }
 
 export function hasSignInProbe(id: string): boolean {
   return id in SIGN_IN_PROBES

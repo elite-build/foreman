@@ -94,6 +94,16 @@ describe('G1 · credentials probes', () => {
     expect(await probeSignIn('vibe', deps({ '/home/me/.vibe/.env': 'MISTRAL_API_KEY=abc\n' }))).not.toBeNull()
   })
 
+  it('Hermes Agent: a provider key in .env in its home, on Windows under %LOCALAPPDATA%, or in HERMES_HOME', async () => {
+    expect(await probeSignIn('hermes', deps({ '/home/me/.hermes/.env': 'OPENROUTER_API_KEY=sk-or-1\n' }))).toMatchObject({ source: '~/.hermes/.env' })
+    expect(await probeSignIn('hermes', deps({ '/home/me/.hermes/.env': '# OPENROUTER_API_KEY=sk\nHERMES_MODEL=x\n' }))).toBeNull()
+    expect(await probeSignIn('hermes', deps({ '/home/me/.hermes/.env': 'OPENAI_API_KEY=${KEY}\n' }))).toBeNull()
+    expect(await probeSignIn('hermes', deps({ '/srv/hermes/.env': 'ANTHROPIC_API_KEY=sk-ant\n' }, { env: { HERMES_HOME: '/srv/hermes' } }))).toMatchObject({ source: '/srv/hermes/.env' })
+    const win = deps({ 'C:\Users\me\AppData\Local\hermes\.env': 'OPENROUTER_API_KEY=sk-or-1\n' }, { home: 'C:\Users\me', platform: 'win32', env: { LOCALAPPDATA: 'C:\Users\me\AppData\Local' } })
+    expect(await probeSignIn('hermes', win)).toMatchObject({ source: '~\AppData\Local\hermes\.env' })
+    expect(await probeSignIn('hermes', deps({}))).toBeNull()
+  })
+
   it('shows a found credential as found, with its source, and Unknown otherwise', () => {
     const qwen = catalogAgent('qwen')!
     expect(signInState(qwen, { mode: 'cli', providerKeys: 0, reported: { signedIn: true, account: 'a', source: '~/.qwen/oauth_creds.json' } })).toEqual({ kind: 'signed-in', account: 'a', source: '~/.qwen/oauth_creds.json' })

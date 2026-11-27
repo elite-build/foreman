@@ -5,7 +5,7 @@
 // is the external integration reference, 'docs' the agent's own docs; neither implies local end-to-end validation.
 import type { AgentCapabilities } from '../agentCapabilities'
 import { capsOf, type CatalogAgent, type ChatAgentId } from './catalog'
-import { acpRecord } from './helpers'
+import { acpRecord, NEVER_ASK } from './helpers'
 
 /** One entry per Chat agent, so a later slice can give an agent that behaves differently a record of its own. */
 // Restore is offered: the files come back from Foreman's own checkpoint and the agent starts a fresh conversation (`checkpoint-fresh-session`).
@@ -21,7 +21,11 @@ export const CHAT_AGENT_RECORDS: Record<ChatAgentId, AgentCapabilities> = {
   pi: chatRecord(),
   commandcode: chatRecord(),
   omp: chatRecord(),
-  antigravity: chatRecord()
+  antigravity: chatRecord(),
+  grok: chatRecord(),
+  // Hermes asks before edits and the commands its own approval layer counts as dangerous, but runs other commands without
+  // asking, so Ask and Ask except edits wouldn't hold: like Cursor, only Never ask is offered (docs/agents.md, Hermes Agent).
+  hermes: (() => { const r = chatRecord(); return { ...r, enforcement: { ...r.enforcement, permissionModes: NEVER_ASK } } })()
 }
 
 export const ACP_CHAT_AGENTS: CatalogAgent[] = [
@@ -90,5 +94,22 @@ export const ACP_CHAT_AGENTS: CatalogAgent[] = [
     acp: { args: ['acp'], expect: { name: 'Antigravity ACP Server', minVersion: '1.5.0' }, source: 'docs' },
     auth: { login: { args: [], hint: 'agentCatalog.hint.browser' }, apiKey: { envVar: 'GEMINI_API_KEY', alsoStrip: ['GOOGLE_API_KEY'], keyUrl: 'https://aistudio.google.com/apikey' }, confirmed: true },
     capabilities: capsOf(CHAT_AGENT_RECORDS.antigravity), docsUrl: 'https://github.com/google-antigravity/antigravity-cli', scratch: ['.agents/']
+  },
+  {
+    // Grok Build: `grok agent stdio` is from xAI's docs (Build → Headless scripting). It signs in with `grok login` (a browser) or
+    // XAI_API_KEY, and the client names the method in `authenticate` after `initialize` (main/agents/acp/catalogDrivers.ts).
+    id: 'grok', name: 'Grok Build', monogram: 'Gr', level: 'chat', binaries: ['grok'], versionArgs: ['--version'],
+    acp: { args: ['agent', 'stdio'], source: 'docs' },
+    auth: { login: { args: ['login'], hint: 'agentCatalog.hint.browser' }, apiKey: { envVar: 'XAI_API_KEY', keyUrl: 'https://console.x.ai' }, confirmed: true },
+    capabilities: capsOf(CHAT_AGENT_RECORDS.grok), docsUrl: 'https://docs.x.ai/build/cli/headless-scripting'
+  },
+  {
+    // Hermes Agent (Nous Research): `hermes acp` is from its docs (User guide → ACP). It needs the `acp` extra installed. It keeps
+    // its provider and keys in its own home (~/.hermes, %LOCALAPPDATA%\hermes on Windows), set with `hermes model`, and also reads
+    // provider keys from its environment, so the ones ticked in Settings → Provider keys reach it.
+    id: 'hermes', name: 'Hermes Agent', monogram: 'He', level: 'chat', binaries: ['hermes'], versionArgs: ['--version'],
+    acp: { args: ['acp'], source: 'docs' },
+    auth: { login: { args: ['model'] }, sharedKeys: true, confirmed: true },
+    capabilities: capsOf(CHAT_AGENT_RECORDS.hermes), docsUrl: 'https://hermes-agent.nousresearch.com/docs/user-guide/features/acp'
   },
 ]

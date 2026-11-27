@@ -55,11 +55,6 @@ export const TERMINAL_AGENTS: CatalogAgent[] = [
     capabilities: TERMINAL_CAPS, docsUrl: 'https://docs.augmentcode.com/cli/overview'
   },
   {
-    id: 'grok', name: 'Grok CLI', monogram: 'Gr', level: 'terminal', binaries: ['grok'], versionArgs: ['--version'], terminal: { args: ['--no-auto-update'] },
-    auth: { login: { args: ['login'] }, apiKey: { envVar: 'XAI_API_KEY', keyUrl: 'https://console.x.ai' }, confirmed: true },
-    capabilities: TERMINAL_CAPS, docsUrl: 'https://docs.x.ai/build/overview'
-  },
-  {
     id: 'vibe', name: 'Mistral Vibe', monogram: 'Mv', level: 'terminal', binaries: ['vibe'], versionArgs: ['--version'], terminal: { args: [] },
     auth: { login: { args: ['--setup'] }, apiKey: { envVar: 'MISTRAL_API_KEY', keyUrl: 'https://console.mistral.ai/api-keys' }, confirmed: true },
     capabilities: TERMINAL_CAPS, docsUrl: 'https://github.com/mistralai/mistral-vibe', scratch: ['.vibe/']
