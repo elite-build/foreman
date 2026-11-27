@@ -4,7 +4,7 @@
 // memory read is framed as data. Writes go through the memory service, staged for the run (its own folder, and shared
 // folders its definition grants) or filed as proposals for a person (the organization's files), never anywhere else.
 import type { AgentKind } from '../shared/agents'
-import { DATA_NOTE, dataBlock, memoryBlock, memoryConflictNote, memoryWriteDecision, plainSnippet, rememberLine, ROSTER_NOTE, type EmployeeToolName, type MemoryWriteGrants } from '../shared/employeeTools'
+import { DATA_NOTE, dataBlock, memoryBlock, memoryConflictNote, memoryWriteDecision, plainSnippet, rememberLine, ROSTER_NOTE, type EmployeeToolName, type MemoryWriteGrants, type WorkspaceMemoryToolName } from '../shared/employeeTools'
 import { newTriggerId, triggerKey } from '../shared/employeeTriggers'
 import { closureFor, type EmployeeRun } from '../shared/employeeWork'
 import {
@@ -272,22 +272,48 @@ export class EmployeeTools {
 
   private async search(sessionId: string, args: { query: string; limit?: number }): Promise<EmployeeToolResult> {
     const { run } = this.host.work.toolRun(sessionId)
-    const hits = await this.host.memory.search(run.orgId, args.query, args.limit)
+    return this.searchIn(run.orgId, args)
+  }
+
+  private async read(sessionId: string, args: { path: string; commit?: string }): Promise<EmployeeToolResult> {
+    const { run } = this.host.work.toolRun(sessionId)
+    return this.readIn(run.orgId, args, run.id)
+  }
+
+  /**
+   * docs/ai-employees.md §4: an ordinary workspace agent's memory_search or memory_read, for the organization its
+   * workspace's repository is in (main/foremanMcp.ts resolves it from the turn's grant, never from the arguments). The
+   * same reads as a run's, outside any run: nothing staged, the sensitive paths refused, and no tool here writes.
+   */
+  async callForWorkspace(orgId: string, name: WorkspaceMemoryToolName, args: Record<string, unknown>): Promise<EmployeeToolResult> {
+    try {
+      if (name === 'memory_search') return await this.searchIn(orgId, args as { query: string; limit?: number })
+      if (name === 'memory_read') return await this.readIn(orgId, args as { path: string; commit?: string })
+    } catch (err) {
+      return { text: message(err), isError: true }
+    }
+    return { text: 'Unknown tool.', isError: true }
+  }
+
+  private async searchIn(orgId: string, args: { query: string; limit?: number }): Promise<EmployeeToolResult> {
+    const hits = await this.host.memory.search(orgId, args.query, args.limit)
     if (!hits.length) return { text: `Nothing in memory matches “${args.query}”.` }
     const blocks = hits.map((h) => memoryBlock({ path: h.path, version: h.blob }, plainSnippet(h.snippet)))
     return { text: `${hits.length} ${hits.length === 1 ? 'file matches' : 'files match'} “${args.query}”, best first (matches «marked»). memory_read a path for the whole file.\n\n${blocks.join('\n\n')}\n\n${DATA_NOTE}` }
   }
 
-  private async read(sessionId: string, args: { path: string; commit?: string }): Promise<EmployeeToolResult> {
-    const { run } = this.host.work.toolRun(sessionId)
-    const file = await this.host.memory.read(run.orgId, args.path, { runId: run.id, ...(args.commit ? { commit: args.commit } : {}) })
+  /** A file as a run sees it (`runId`: its staged writes over the head, with how to write it), else as last committed. */
+  private async readIn(orgId: string, args: { path: string; commit?: string }, runId?: string): Promise<EmployeeToolResult> {
+    const file = await this.host.memory.read(orgId, args.path, { ...(runId ? { runId } : { agent: true }), ...(args.commit ? { commit: args.commit } : {}) })
     // At a commit: the version handed over, which a write isn't checked against.
     const at = args.commit ? ` at ${file.head.slice(0, 12)}` : ''
-    if (file.blob === null) return { text: args.commit ? `${file.path} didn’t exist${at}.` : `${file.path} doesn’t exist yet (version: null). To make it, memory_write it with expected: null.` }
+    if (file.blob === null) return { text: args.commit ? `${file.path} didn’t exist${at}.` : runId ? `${file.path} doesn’t exist yet (version: null). To make it, memory_write it with expected: null.` : `${file.path} doesn’t exist in the organization’s memory.` }
     if (file.binary || file.tooLarge || file.text === undefined) return { text: `${file.path} is ${file.binary ? 'binary' : 'too large'}; Foreman reads and writes only text files in memory.`, isError: true }
-    const version = args.commit
-      ? `version${at}: ${file.blob}. This is the file as it was at that commit, not necessarily now: to write it, memory_read it without commit and pass that version as expected.`
-      : `version: ${file.blob} (pass it as expected to memory_write)`
+    const version = !runId
+      ? `version${at}: ${file.blob}`
+      : args.commit
+        ? `version${at}: ${file.blob}. This is the file as it was at that commit, not necessarily now: to write it, memory_read it without commit and pass that version as expected.`
+        : `version: ${file.blob} (pass it as expected to memory_write)`
     return { text: `${memoryBlock({ path: file.path, version: file.blob }, file.text)}\n\n${version}\n${DATA_NOTE}` }
   }
 

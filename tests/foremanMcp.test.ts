@@ -487,3 +487,52 @@ describe('the bridge process', () => {
     expect(cli.packages).toContain('dynamic:./registry')
   })
 })
+
+describe('the organization’s memory for workspace agents (docs/ai-employees.md §4)', () => {
+  function memoryRig(org: { value: string | undefined }) {
+    const { actions, state, session } = rig()
+    const calls: [string, string, Record<string, unknown>][] = []
+    const memoryOrganization = vi.fn((workspaceId: string) => (workspaceId === 'w' ? org.value : undefined))
+    const local = new ForemanMcp({ actions, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null, memoryOrganization })
+    local.employeeTools = {
+      call: async () => ({ text: 'an employee tool', isError: true }),
+      callForWorkspace: async (orgId: string, name: string, args: Record<string, unknown>) => (calls.push([orgId, name, args]), { text: `${name} in ${orgId}` })
+    } as unknown as EmployeeTools
+    cleanup.push(() => local.close())
+    return { local, session, calls, memoryOrganization }
+  }
+  const names = async (client: Client) => (await client.listTools()).tools.map((t) => t.name)
+
+  it('offers memory_search and memory_read, read only, for the organization the workspace’s repository is in', async () => {
+    const org = { value: 'o1' as string | undefined }
+    const r = memoryRig(org)
+    const client = await inProcessClient(r.local.inProcessForTurn(r.session)['foreman-app'])
+    const tools = (await client.listTools()).tools
+    expect(tools.filter((t) => t.name.startsWith('memory_')).map((t) => [t.name, t.annotations?.readOnlyHint])).toEqual([['memory_search', true], ['memory_read', true]])
+    // No employee write or work tool comes with them.
+    for (const name of EMPLOYEE_TOOL_NAMES.filter((n) => n !== 'memory_search' && n !== 'memory_read')) expect(tools.map((t) => t.name)).not.toContain(name)
+    const out = await client.callTool({ name: 'memory_read', arguments: { path: 'memory/org/PROJECT.md' } })
+    expect(JSON.stringify(out.content)).toContain('memory_read in o1')
+    // The organization is the grant's workspace's, never an argument.
+    expect((await client.callTool({ name: 'memory_search', arguments: { query: 'x', orgId: 'o2' } })).isError).toBe(true)
+    expect(r.calls).toEqual([['o1', 'memory_read', { path: 'memory/org/PROJECT.md' }]])
+    // A read-only turn reads memory too.
+    r.session.planMode = true
+    expect(await names(await inProcessClient(r.local.inProcessForTurn(r.session)['foreman-app']))).toContain('memory_search')
+  })
+
+  it('isn’t offered outside an organization with memory, and refuses once the repository has left it', async () => {
+    const org = { value: undefined as string | undefined }
+    const r = memoryRig(org)
+    expect(await names(await inProcessClient(r.local.inProcessForTurn(r.session)['foreman-app']))).not.toContain('memory_search')
+    org.value = 'o1'
+    const client = await inProcessClient(r.local.inProcessForTurn(r.session)['foreman-app'])
+    expect(await names(client)).toContain('memory_search')
+    // Checked again at each call: moved to Personal meanwhile, the turn's tool refuses.
+    org.value = undefined
+    const out = await client.callTool({ name: 'memory_search', arguments: { query: 'ship' } })
+    expect(out.isError).toBe(true)
+    expect(JSON.stringify(out.content)).toContain('no longer in an organization with memory')
+    expect(r.calls).toEqual([])
+  })
+})

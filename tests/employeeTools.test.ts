@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { EmployeeTools, type EmployeeToolsHost } from '../src/main/employeeTools'
 import type { EmployeeBrief, EmployeeToolRun } from '../src/main/employeeWork'
-import { EMPLOYEE_TOOLS, memoryBlock, memoryWriteDecision, plainSnippet, rememberLine } from '../src/shared/employeeTools'
+import { DATA_NOTE, EMPLOYEE_TOOLS, memoryBlock, memoryWriteDecision, plainSnippet, rememberLine, WORKSPACE_MEMORY_TOOL_NAMES, WORKSPACE_MEMORY_TOOLS } from '../src/shared/employeeTools'
 import { defaultEmployee, type EmployeeSummary } from '../src/shared/employees'
 import { continuationMessage, howYouFinish } from '../src/shared/employeeWork'
 import type { Session } from '../src/shared/types'
@@ -196,5 +196,58 @@ describe('employee tools: the service', () => {
       text: 'Not committed: memory/org/docs/a.md, memory/org/docs/b.md changed since you read them, so your changes to them were set aside; your other memory writes are still staged and go in with the next commit. Read each again (memory_read, no commit), write each again with that version as expected, then checkpoint again.',
       isError: true
     })
+  })
+})
+
+describe('employee tools: a workspace agent’s read of its organization’s memory (docs/ai-employees.md §4)', () => {
+  function rig() {
+    const toolRun = vi.fn(() => { throw new Error('not a run') })
+    const read = vi.fn(async (_o: string, p: string, _options?: object) => ({ path: p, head: 'c0ffee1234567890', blob: 'b1', size: 1, binary: false, tooLarge: false, text: 'We ship on Fridays.' }))
+    const search = vi.fn(async () => [{ path: 'memory/org/PROJECT.md', blob: 'b1', snippet: 'We \u0001ship\u0002 on Fridays.' }])
+    const stage = vi.fn()
+    const propose = vi.fn()
+    const host = {
+      work: { toolRun } as unknown as EmployeeToolsHost['work'],
+      memory: { search, read, stage, propose } as unknown as EmployeeToolsHost['memory'],
+      employees: { current: vi.fn() } as unknown as EmployeeToolsHost['employees']
+    }
+    return { tools: new EmployeeTools(host), toolRun, read, search, stage, propose }
+  }
+
+  it('offers only search and read, both read only, with the employees’ schemas', () => {
+    expect(WORKSPACE_MEMORY_TOOL_NAMES).toEqual(['memory_search', 'memory_read'])
+    for (const name of WORKSPACE_MEMORY_TOOL_NAMES) {
+      expect(WORKSPACE_MEMORY_TOOLS[name].readOnly).toBe(true)
+      expect(WORKSPACE_MEMORY_TOOLS[name].schema).toBe(EMPLOYEE_TOOLS[name].schema)
+      expect(WORKSPACE_MEMORY_TOOLS[name].description).not.toMatch(/memory_write|remember/)
+    }
+  })
+
+  it('searches and reads the organization it is given, outside any run, and never writes', async () => {
+    const r = rig()
+    const found = await r.tools.callForWorkspace('o1', 'memory_search', { query: 'ship' })
+    expect(r.search).toHaveBeenCalledWith('o1', 'ship', undefined)
+    expect(found.text).toContain('«ship»')
+    expect(found.text).toContain(DATA_NOTE)
+    const file = await r.tools.callForWorkspace('o1', 'memory_read', { path: 'memory/org/PROJECT.md' })
+    // Read as an agent (sensitive paths refused), with no run and so nothing staged over it.
+    expect(r.read).toHaveBeenLastCalledWith('o1', 'memory/org/PROJECT.md', { agent: true })
+    expect(file.text).toContain('We ship on Fridays.')
+    expect(file.text).toContain('version: b1')
+    expect(file.text).not.toContain('memory_write')
+    await r.tools.callForWorkspace('o1', 'memory_read', { path: 'memory/org/PROJECT.md', commit: 'c0ffee12' })
+    expect(r.read).toHaveBeenLastCalledWith('o1', 'memory/org/PROJECT.md', { agent: true, commit: 'c0ffee12' })
+    expect(r.toolRun).not.toHaveBeenCalled()
+    expect(r.stage).not.toHaveBeenCalled()
+    expect(r.propose).not.toHaveBeenCalled()
+  })
+
+  it('says a missing file is missing without offering to write it, and turns a refusal into an error result', async () => {
+    const r = rig()
+    r.read.mockResolvedValueOnce({ path: 'memory/org/none.md', head: 'h', blob: null, size: 0, binary: false, tooLarge: false } as never)
+    const missing = await r.tools.callForWorkspace('o1', 'memory_read', { path: 'memory/org/none.md' })
+    expect(missing.text).toBe('memory/org/none.md doesn’t exist in the organization’s memory.')
+    r.read.mockRejectedValueOnce(new Error('memory/private/plan.md matches the memory repository’s sensitive paths, so Foreman won’t read it to an agent.'))
+    expect(await r.tools.callForWorkspace('o1', 'memory_read', { path: 'memory/private/plan.md' })).toMatchObject({ isError: true, text: expect.stringContaining('sensitive paths') })
   })
 })

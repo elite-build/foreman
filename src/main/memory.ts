@@ -340,14 +340,15 @@ export class MemoryService {
   /**
    * A file at the head; inside a run (`runId`), with that run's staged changes over it. At `commit` (a full or
    * abbreviated sha: a version handed over): the file as it was there, nothing staged over it, and `head` is that commit.
+   * `agent`: read to a workspace agent outside any run (docs/ai-employees.md §4), held to the same sensitive paths.
    */
-  async read(orgId: string, file: string, options: { runId?: string; commit?: string } = {}): Promise<MemoryFile> {
+  async read(orgId: string, file: string, options: { runId?: string; commit?: string; agent?: boolean } = {}): Promise<MemoryFile> {
     const t = this.target(orgId)
     const problem = memoryPathProblem(file)
     if (problem) throw new MemoryRefused(`${file}: ${MEMORY_PATH_REASON[problem]}`, 'path')
-    // A run never reads what it may not write: the repository's sensitive paths.
-    if (options.runId && sensitiveMatches([file], this.host.sensitivePaths(t.repo)).length) {
-      throw new MemoryRefused(`${file} matches the memory repository’s sensitive paths, so Foreman won’t read it to an employee.`, 'sensitive')
+    // A run never reads what it may not write: the repository's sensitive paths. Nor does a workspace agent.
+    if ((options.runId || options.agent) && sensitiveMatches([file], this.host.sensitivePaths(t.repo)).length) {
+      throw new MemoryRefused(`${file} matches the memory repository’s sensitive paths, so Foreman won’t read it to ${options.runId ? 'an employee' : 'an agent'}.`, 'sensitive')
     }
     if (options.commit !== undefined) {
       const commit = await this.commitOf(t, options.commit)

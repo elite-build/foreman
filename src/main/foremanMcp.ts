@@ -14,7 +14,7 @@ import { DELEGATION_TOOLS, delegationToolNames } from '../shared/foremanDelegati
 import type { ForemanDelegation } from './foremanDelegation'
 import type { ForemanCli } from './foremanCli'
 import { FOREMAN_CLI_TOOL } from '../shared/foremanCli'
-import { EMPLOYEE_TOOL_NAMES, EMPLOYEE_TOOLS } from '../shared/employeeTools'
+import { EMPLOYEE_TOOL_NAMES, EMPLOYEE_TOOLS, WORKSPACE_MEMORY_TOOL_NAMES, WORKSPACE_MEMORY_TOOLS } from '../shared/employeeTools'
 import type { EmployeeTools } from './employeeTools'
 
 // `cap`: the turn's own (docs/agent-access.md §4), which its start_task and send_task pass on.
@@ -28,6 +28,9 @@ interface Deps {
   flowsOn?(): boolean
   // `read_chat_history`: the turns of a session's own chat. Not offered where this isn't given.
   chatHistory?(sessionId: string, args: ReadHistoryArgs): Promise<ReadHistoryResult>
+  // docs/ai-employees.md §4: the organization whose memory a workspace's agent may read (its repository's space, while
+  // that has a memory repository). Absent or undefined: memory_search and memory_read aren't offered.
+  memoryOrganization?(workspaceId: string): string | undefined
 }
 
 /** Local capabilities, never the CLI's optional/cooperative caller identity. */
@@ -187,6 +190,25 @@ export class ForemanMcp {
         return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
       }
     })
+    // The organization's memory, read only, when the workspace's repository is in one with a memory repository. The
+    // organization comes from the grant's workspace, checked again at each call (the repository may have moved spaces).
+    if (this.employeeTools && this.deps.memoryOrganization?.(this.scope(grantId).workspaceId)) for (const name of WORKSPACE_MEMORY_TOOL_NAMES) {
+      const definition = WORKSPACE_MEMORY_TOOLS[name]
+      server.registerTool(name, {
+        description: definition.description,
+        inputSchema: definition.schema as z.ZodObject<z.ZodRawShape>,
+        annotations: { readOnlyHint: true }
+      }, async (args) => {
+        try {
+          const orgId = this.deps.memoryOrganization?.(this.scope(grantId).workspaceId)
+          if (!orgId || !this.employeeTools) throw new Error('This workspace’s repository is no longer in an organization with memory.')
+          const result = await this.employeeTools.callForWorkspace(orgId, name, args as Record<string, unknown>)
+          return { content: [{ type: 'text' as const, text: result.text }], ...(result.isError ? { isError: true } : {}) }
+        } catch (err) {
+          return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
+        }
+      })
+    }
     for (const name of Object.keys(FOREMAN_TOOLS) as ForemanToolName[]) {
       const definition = FOREMAN_TOOLS[name]
       if (readOnly && !definition.readOnly) continue

@@ -33,6 +33,12 @@ export interface DelegationScope {
 const OPT_IN = 'Enable “Let agents start workspaces and queue messages” in Repository settings → Actions to coordinate other workspaces.'
 const FLOWS_OFF = 'Flows are off; the user turns them on in Settings → Experimental.'
 
+/** docs/guide.md, "Foreman tools for agents": how many hops a chain of agent-started workspaces may go (the user's or assistant's is hop 0). */
+export const MAX_DELEGATION_DEPTH = 5
+const REPORT_BACK = 'Finish your own task and report your result in your reply instead; the chat that started you reads it with get_turn_result.'
+export const DEPTH_REFUSAL = `This workspace is already ${MAX_DELEGATION_DEPTH} hops down a chain of workspaces that agents started, the most Foreman allows, so it can’t start or message another one. ${REPORT_BACK}`
+export const cycleRefusal = (name: string) => `“${name}” is earlier in the chain of workspaces that started this one, so messaging it would make a loop. ${REPORT_BACK}`
+
 /** Reuses CLI handlers, with mandatory MCP scope checks instead of optional caller tokens. */
 export class ForemanDelegation {
   constructor(private host: CliHost) {}
@@ -52,6 +58,33 @@ export class ForemanDelegation {
     }
     if (write && current.readOnly) throw new Error('This session can only read Foreman state.')
     return current
+  }
+
+  /** The workspaces above this one: each started by an agent's chat in the next (Workspace.startedBy, via delegation or
+   *  the CLI), nearest first. A chain ends at one the user, the assistant, an outside agent or an AI employee started. */
+  private ancestors(workspaceId: string): Workspace[] {
+    const { workspaces, sessions } = this.host.state()
+    const chain: Workspace[] = []
+    const seen = new Set([workspaceId])
+    let by = workspaces.find((w) => w.id === workspaceId)?.startedBy
+    while (by && (by.via === 'delegation' || by.via === 'cli')) {
+      const sessionId = by.sessionId
+      const parentId = sessions.find((s) => s.id === sessionId)?.workspaceId
+      const parent = parentId && !seen.has(parentId) ? workspaces.find((w) => w.id === parentId) : undefined
+      if (!parent) break
+      seen.add(parent.id)
+      chain.push(parent)
+      by = parent.startedBy
+    }
+    return chain
+  }
+
+  /** The chain limits (docs/guide.md): a workspace agent may not hand work past the chain's maximum depth, nor back up its own chain. */
+  private chainRefusal(current: DelegationScope, target?: Workspace): string | null {
+    if (!current.workspaceId) return null
+    const chain = this.ancestors(current.workspaceId)
+    if (target && chain.some((w) => w.id === target.id)) return cycleRefusal(target.name)
+    return chain.length >= MAX_DELEGATION_DEPTH ? DEPTH_REFUSAL : null
   }
 
   private workspace(id: string): Workspace {
@@ -135,7 +168,7 @@ export class ForemanDelegation {
       const loadout = this.host.state().settings.loadouts[(parsed.loadout as number) - 1]
       if (!loadout) throw new Error('That loadout slot is not configured.')
       // docs/agent-access.md §3: a capped caller can't start a task on an agent that can't be held to its ceiling.
-      const refusal = ceilingRefusal(loadout.agent, current.cap)
+      const refusal = ceilingRefusal(loadout.agent, current.cap) ?? this.chainRefusal(current)
       if (refusal) throw new Error(refusal)
     }
     if (name === 'start_flow') {
@@ -146,11 +179,12 @@ export class ForemanDelegation {
     }
     if (name === 'get_flow_status') await this.flowRun(parsed.runId as string | undefined, scope)
     if (typeof parsed.workspaceId === 'string') {
-      this.target(parsed.workspaceId, scope, !definition.readOnly)
+      const target = this.target(parsed.workspaceId, scope, !definition.readOnly)
       const chat = name === 'send_task' ? this.host.state().sessions.find((s) => s.id === parsed.sessionId && s.workspaceId === parsed.workspaceId && !s.closedAt) : undefined
       if (name === 'send_task' && !chat) throw new Error('Choose an open chat in the target workspace.')
       // docs/agent-access.md §3: nor send to a chat whose agent can't be held to its ceiling.
-      const refusal = chat ? ceilingRefusal(chat.agent, current.cap) : null
+      // Nor back up the chain that started the caller, nor past the chain's maximum depth.
+      const refusal = chat ? ceilingRefusal(chat.agent, current.cap) ?? this.chainRefusal(current, target) : null
       if (refusal) throw new Error(refusal)
     }
     if (typeof parsed.turnId === 'string') await this.turn(parsed.turnId, scope, !definition.readOnly, name !== 'get_turn_result')

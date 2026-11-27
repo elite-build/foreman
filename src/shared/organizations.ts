@@ -154,6 +154,16 @@ export function memoryOwner(repoId: string, organizations: readonly Organization
 }
 
 /**
+ * The organization whose memory a workspace agent in this repository may read (docs/ai-employees.md §4): the one whose
+ * space the repository is in, while that has a memory repository. Never for the memory repository itself.
+ */
+export function memoryOrganizationOf(repo: Pick<Repo, 'id' | 'spaceId'>, organizations: readonly Organization[]): Organization | undefined {
+  const space = spaceOf(repo, organizations)
+  const org = space ? organizations.find((o) => o.id === space) : undefined
+  return org?.memoryRepoId && org.memoryRepoId !== repo.id ? org : undefined
+}
+
+/**
  * Whether a repository can have workspaces: an organization's memory repository never does (docs/ai-employees.md §4,
  * Foreman's memory service is its only writer), so nothing offers or makes one there.
  */

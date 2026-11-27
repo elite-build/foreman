@@ -139,6 +139,7 @@ import { ProjectService } from './projects'
 import { EmployeeTriggerService } from './employeeTriggers'
 import { EmployeeEventService } from './employeeEvents'
 import { EmployeeTools } from './employeeTools'
+import { memoryOrganizationOf } from '../shared/organizations'
 import { EmployeeActionService, type BranchPreview } from './employeeActions'
 import { remoteWhere } from '../shared/employeeActions'
 import { handoverTranscript } from '../shared/projects'
@@ -794,7 +795,13 @@ export class Core {
       launch: () => host.bridgeLaunch?.() ?? null,
       socket: () => host.cliSocket?.() ?? null,
       flowsOn: () => Boolean(store.state.settings.flows),
-      chatHistory: (sessionId, args) => this.sessions.readChatHistory(sessionId, args)
+      chatHistory: (sessionId, args) => this.sessions.readChatHistory(sessionId, args),
+      // docs/ai-employees.md §4: a workspace agent reads its repository's organization's memory (EmployeeTools.callForWorkspace).
+      memoryOrganization: (workspaceId) => {
+        const repoId = store.state.workspaces.find((w) => w.id === workspaceId)?.repoId
+        const repo = store.state.repos.find((r) => r.id === repoId)
+        return repo ? memoryOrganizationOf(repo, store.state.organizations ?? [])?.id : undefined
+      }
     })
     this.sessions.foremanMcp = this.foremanMcp
     this.assistant.foremanActions = this.foremanActions

@@ -579,6 +579,8 @@ describe('memory: the search index', () => {
     r.sensitive = ['memory/private/']
     expect(await memory.search('o1', 'quokka')).toEqual([])
     await expect(memory.read('o1', 'memory/private/plan.md', { runId: 'r1' })).rejects.toMatchObject({ reason: 'sensitive' })
+    // Nor does a workspace agent's memory_read, outside any run.
+    await expect(memory.read('o1', 'memory/private/plan.md', { agent: true })).rejects.toMatchObject({ reason: 'sensitive', message: expect.stringContaining('to an agent') })
     // A person reading it in the Memory view still can.
     expect((await memory.read('o1', 'memory/private/plan.md')).text).toBe('Another quokka.\n')
   })

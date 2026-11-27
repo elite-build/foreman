@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { delegationRig } from './foremanDelegationHarness'
+import { cycleRefusal, DEPTH_REFUSAL, MAX_DELEGATION_DEPTH } from '../src/main/foremanDelegation'
 import { send } from '../src/main/cli/work'
 import { DELEGATION_TOOLS, delegationToolNames } from '../src/shared/foremanDelegation'
 import { FLOW_STARTERS } from '../src/shared/flowStarters'
@@ -277,5 +278,62 @@ describe('flow delegation: start_flow, get_flow_status and the flows list', () =
     expect(await r.service.call('get_flow_status', {}, r.scope)).toMatchObject({ runId: 'run-1' })
     // The assistant has no workspace, so it names the run.
     await expect(r.service.call('get_flow_status', {}, { readOnly: true })).rejects.toThrow('Pass a runId')
+  })
+})
+
+describe('chains of agent-started workspaces', () => {
+  // w (the user's) → c1 → … → c5, each started by a chat in the one before (Workspace.startedBy via delegation).
+  function chainRig(length = 5) {
+    const r = delegationRig()
+    let parentChat = r.session.id
+    for (let i = 1; i <= length; i++) {
+      const id = `c${i}`
+      r.state.workspaces.push({ ...r.ws, id, name: `Hop ${i}`, startedBy: { sessionId: parentChat, via: 'delegation' } })
+      r.state.sessions.push({ ...r.session, id: `${id}-chat`, workspaceId: id, turnId: undefined, status: 'idle' })
+      parentChat = `${id}-chat`
+    }
+    const scopeOf = (id: string) => ({ workspaceId: id, sessionId: `${id}-chat`, readOnly: false })
+    return { ...r, scopeOf }
+  }
+
+  it('refuses to start or message anything past the maximum depth, and tells the agent to report back', async () => {
+    const r = chainRig()
+    expect(MAX_DELEGATION_DEPTH).toBe(5)
+    await expect(r.service.call('start_task', { prompt: 'Go deeper', loadout: 1 }, r.scopeOf('c5'))).rejects.toThrow(DEPTH_REFUSAL)
+    await expect(r.service.call('send_task', { workspaceId: 'c4', sessionId: 'c4-chat', prompt: 'More' }, r.scopeOf('c5'))).rejects.toThrow('report your result in your reply')
+    expect(r.createWorkspace).not.toHaveBeenCalled()
+    expect(r.deliver).not.toHaveBeenCalled()
+    // One hop short of the limit may still start one, which is then the last.
+    await r.service.call('start_task', { prompt: 'Last hop', loadout: 1 }, r.scopeOf('c4'))
+    expect(r.createWorkspace).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses send_task back up the caller’s own chain, but not down it', async () => {
+    const r = chainRig(3)
+    await expect(r.service.call('send_task', { workspaceId: 'w', sessionId: 's', prompt: 'Your turn' }, r.scopeOf('c2'))).rejects.toThrow(cycleRefusal('Coordinator'))
+    await expect(r.service.call('send_task', { workspaceId: 'c1', sessionId: 'c1-chat', prompt: 'Your turn' }, r.scopeOf('c2'))).rejects.toThrow('would make a loop')
+    expect(r.deliver).not.toHaveBeenCalled()
+    await r.service.call('send_task', { workspaceId: 'c3', sessionId: 'c3-chat', prompt: 'Revise' }, r.scopeOf('c2'))
+    expect(r.deliver).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the assistant and outside agents, which have no workspace, unaffected', async () => {
+    const r = chainRig()
+    await r.service.call('start_task', { prompt: 'Research', loadout: 1, repoId: 'r' }, { readOnly: false, assistantThread: 'thread-1' })
+    await r.service.call('send_task', { workspaceId: 'c5', sessionId: 'c5-chat', prompt: 'Check' }, { readOnly: false, outside: { grantId: 'g', name: 'Client' } })
+    await r.service.call('send_task', { workspaceId: 'w', sessionId: 's', prompt: 'Check' }, { readOnly: false, outside: { grantId: 'g', name: 'Client' } })
+    expect(r.createWorkspace).toHaveBeenCalledTimes(1)
+    expect(r.deliver).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops walking a chain whose records loop, and counts a workspace an assistant started as a new chain', async () => {
+    const r = chainRig(2)
+    // Records that point in a circle (w says c2's chat started it) end the walk instead of hanging.
+    r.ws.startedBy = { sessionId: 'c2-chat', via: 'delegation' }
+    await r.service.call('start_task', { prompt: 'Research', loadout: 1 }, r.scopeOf('c1'))
+    // A workspace the assistant started is hop 0, whatever thread started it.
+    r.ws.startedBy = { sessionId: 'thread-1', via: 'assistant' }
+    await r.service.call('start_task', { prompt: 'Research', loadout: 1 }, r.scopeOf('c2'))
+    expect(r.createWorkspace).toHaveBeenCalledTimes(2)
   })
 })

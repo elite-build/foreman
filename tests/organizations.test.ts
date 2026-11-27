@@ -12,6 +12,7 @@ import {
   freeMemoryName,
   holdsWorkspaces,
   memoryChoices,
+  memoryOrganizationOf,
   moveRefusal,
   newWorkspaceTarget,
   organizationNameProblem,
@@ -91,6 +92,18 @@ describe('organizations: the shared rules', () => {
     // No organization yet: the sidebar as it always was, every repository.
     const none = { ...snapshot, organizations: [] } as AppSnapshot
     expect(snapshotInSpace(none, null)).toBe(none)
+  })
+
+  it('gives a workspace agent the memory of its repository’s organization, only while that has a memory repository', () => {
+    const repos = [repo('blog'), repo('site', { spaceId: 'o1' }), repo('foreman-memory', { spaceId: 'o1' }), repo('notes', { spaceId: 'o2' }), repo('lost', { spaceId: 'gone' })]
+    const organizations = [org('o1', 'Foreman', 'foreman-memory'), org('o2', 'Later')]
+    const of = (id: string) => memoryOrganizationOf(repos.find((r) => r.id === id)!, organizations)?.id
+    expect(of('site')).toBe('o1')
+    // Personal, an organization that decided later, and one that is gone have none; nor does the memory repository itself.
+    expect(of('blog')).toBeUndefined()
+    expect(of('notes')).toBeUndefined()
+    expect(of('lost')).toBeUndefined()
+    expect(of('foreman-memory')).toBeUndefined()
   })
 
   it('never offers an organization’s memory repository for a new workspace, as a default or a choice', () => {
