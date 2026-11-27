@@ -560,6 +560,8 @@ export interface RawHit {
   at: string
   cleared: boolean
   snippet: string
+  // The turn the item belongs to (none for an item outside any turn).
+  turnId?: string
   // O1: the agent and model the hit's turn was sent to, when its message recorded them.
   agent?: string
   model?: string
@@ -919,7 +921,7 @@ export class ForemanDb {
     const columns = options.toolOutput ? '{text tool_text}' : 'text'
     // O1: the agent and model of the hit's turn, from its message (a tab can switch agents).
     const rows = this.stmt(
-      `SELECT i.session_id, i.id, i.kind, i.at, i.superseded,
+      `SELECT i.session_id, i.id, i.kind, i.at, i.superseded, i.turn_id,
               snippet(items_fts, -1, char(1), char(2), '…', 14) AS snippet,
               (SELECT json_extract(u.json, '$.agent') FROM items u
                 WHERE u.session_id = i.session_id AND u.turn_id = i.turn_id AND u.kind = 'user' ORDER BY u.seq DESC LIMIT 1) AS agent,
@@ -928,26 +930,47 @@ export class ForemanDb {
        FROM items_fts JOIN items i ON i.seq = items_fts.rowid
        WHERE items_fts MATCH ? AND (i.superseded = 0 OR ?)
        ORDER BY bm25(items_fts), i.seq DESC LIMIT ?`
-    ).all(`${columns} : (${match})`, options.cleared ? 1 : 0, options.limit) as { session_id: string; id: string; kind: string; at: string; superseded: number; snippet: string; agent: string | null; model: string | null }[]
-    return rows.map((r) => ({ sessionId: r.session_id, itemId: r.id, kind: r.kind, at: r.at, cleared: r.superseded === 1, snippet: r.snippet, ...(r.agent && r.model ? { agent: r.agent, model: r.model } : {}) }))
+    ).all(`${columns} : (${match})`, options.cleared ? 1 : 0, options.limit) as { session_id: string; id: string; kind: string; at: string; superseded: number; turn_id: string | null; snippet: string; agent: string | null; model: string | null }[]
+    return rows.map((r) => ({ sessionId: r.session_id, itemId: r.id, kind: r.kind, at: r.at, cleared: r.superseded === 1, snippet: r.snippet, ...(r.turn_id ? { turnId: r.turn_id } : {}), ...(r.agent && r.model ? { agent: r.agent, model: r.model } : {}) }))
   }
 
   // ---- usage ----
 
   /**
-   * What the usage report reads: every user, result and turn-end item (cleared ones too, as receipts)
-   * of turns that have an item since the cutoff. The report applies the exact start time.
+   * What the usage report reads, in chat order: every user, result and turn-end item (cleared ones too, as receipts) of
+   * turns that have an item since the cutoff. The report applies the exact start time. A result also carries the cost the
+   * chat's previous priced result reported for the same agent (a message that recorded none matches any): Claude's cost is
+   * a running total, so a turn's own is the difference, and that result may be from before the cutoff.
    */
   usageRows(since: string): UsageRow[] {
+    const agentOf = (alias: string) =>
+      `(SELECT json_extract(u.json, '$.agent') FROM items u WHERE u.session_id = ${alias}.session_id AND u.turn_id = ${alias}.turn_id AND u.kind = 'user' ORDER BY u.seq LIMIT 1)`
     const rows = this.stmt(
-      `SELECT session_id, turn_id, kind, at, json_extract(json, '$.costUsd') AS cost, json_extract(json, '$.durationMs') AS duration,
-              json_extract(json, '$.agent') AS agent, json_extract(json, '$.model') AS model
-       FROM items
-       WHERE kind IN ('user', 'result', 'turn-end') AND turn_id IS NOT NULL
-         AND turn_id IN (SELECT turn_id FROM items WHERE kind IN ('user', 'result', 'turn-end') AND at >= ?)`
-    ).all(since) as { session_id: string; turn_id: string; kind: UsageRow['kind']; at: string; cost: number | null; duration: number | null; agent: string | null; model: string | null }[]
+      `SELECT i.session_id, i.turn_id, i.kind, i.at, json_extract(i.json, '$.costUsd') AS cost, json_extract(i.json, '$.durationMs') AS duration,
+              json_extract(i.json, '$.agent') AS agent, json_extract(i.json, '$.model') AS model,
+              CASE WHEN i.kind = 'result' THEN (
+                SELECT json_extract(p.json, '$.costUsd') FROM items p
+                WHERE p.session_id = i.session_id AND p.kind = 'result' AND p.seq < i.seq AND p.turn_id IS NOT i.turn_id
+                  AND json_extract(p.json, '$.costUsd') IS NOT NULL
+                  AND COALESCE(${agentOf('p')}, ${agentOf('i')}) IS COALESCE(${agentOf('i')}, ${agentOf('p')})
+                ORDER BY p.seq DESC LIMIT 1
+              ) END AS before
+       FROM items i
+       WHERE i.kind IN ('user', 'result', 'turn-end') AND i.turn_id IS NOT NULL
+         AND i.turn_id IN (SELECT turn_id FROM items WHERE kind IN ('user', 'result', 'turn-end') AND at >= ?)
+       ORDER BY i.seq`
+    ).all(since) as { session_id: string; turn_id: string; kind: UsageRow['kind']; at: string; cost: number | null; duration: number | null; agent: string | null; model: string | null; before: number | null }[]
     // O1: a message records the agent and model it was sent to.
-    return rows.map((r) => ({ sessionId: r.session_id, turnId: r.turn_id, kind: r.kind, at: r.at, costUsd: r.cost ?? undefined, durationMs: r.duration ?? undefined, ...(r.kind === 'user' && r.agent && r.model ? { agent: r.agent as UsageRow['agent'], model: r.model } : {}) }))
+    return rows.map((r) => ({
+      sessionId: r.session_id,
+      turnId: r.turn_id,
+      kind: r.kind,
+      at: r.at,
+      costUsd: r.cost ?? undefined,
+      ...(r.before !== null ? { costBeforeUsd: r.before } : {}),
+      durationMs: r.duration ?? undefined,
+      ...(r.kind === 'user' && r.agent && r.model ? { agent: r.agent as UsageRow['agent'], model: r.model } : {})
+    }))
   }
 
   // ---- Langfuse (docs/telemetry.md, "Langfuse") ----

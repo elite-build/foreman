@@ -91,7 +91,7 @@ export interface Calls {
 }
 
 /** The thread settings Foreman sends on thread/start and thread/resume (resume adds the thread's id). */
-export type ThreadSettings = Pick<ThreadStartParams, 'model' | 'cwd' | 'approvalPolicy' | 'sandbox' | 'developerInstructions' | 'serviceTier' | 'config'>
+export type ThreadSettings = Pick<ThreadStartParams, 'model' | 'cwd' | 'approvalPolicy' | 'approvalsReviewer' | 'sandbox' | 'developerInstructions' | 'serviceTier' | 'config'>
 
 /** A turn as the adapter reads it: the generated fields it uses, the rest optional (an older CLI, a test's partial frame). */
 export type TurnInfo = Pick<Turn, 'status'> & { id?: string; error?: { message?: string } | null }

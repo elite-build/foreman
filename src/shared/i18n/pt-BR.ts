@@ -5976,6 +5976,9 @@ export const ptBR: Catalogue = {
   // Flows (docs/loops-and-graphs.md): the Experimental switch, the Automations list and editor, and the problems a flow file can have.
   'settings.experimental.flows.label': 'Fluxos',
   'settings.experimental.flows.help': 'Grafos de etapas de agentes com loops, executados em Automações. Desativado: nada sobre fluxos aparece.',
+  'settings.experimental.pastChats.label': 'Busca em chats anteriores',
+  'settings.experimental.pastChats.help': 'Os agentes podem pesquisar os chats anteriores deste repositório e ler um turno que encontrarem. Desativado: não podem.',
+  'settings.experimental.pastChats.detail': 'A partir do próximo turno, para os agentes deste computador; não nos espaços de trabalho na nuvem. Chats antigos também guardam seus erros, por isso os agentes são orientados a conferir o que encontram no código.',
   'settings.experimental.replay.label': 'Reproduzir tráfego gravado',
   'settings.experimental.replay.help': 'Somente para builds de desenvolvimento. O Claude Code e o Codex respondem a partir de gravações dos agentes reais em vez de executar: uma palavra da sua mensagem (approval, question, plan, limit ou crash) escolhe a gravação; senão, toca uma resposta simples. Nada é enviado a um agente.',
   'replay.notice': 'Reproduzindo uma gravação: nenhum agente está em execução.',

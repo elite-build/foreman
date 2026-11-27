@@ -5976,6 +5976,9 @@ export const ko: Catalogue = {
   // Flows (docs/loops-and-graphs.md): the Experimental switch, the Automations list and editor, and the problems a flow file can have.
   'settings.experimental.flows.label': '플로',
   'settings.experimental.flows.help': '루프가 있는 에이전트 단계의 그래프로, 자동화에서 실행합니다. 끄면 플로와 관련된 것이 아무것도 표시되지 않습니다.',
+  'settings.experimental.pastChats.label': '이전 채팅 검색',
+  'settings.experimental.pastChats.help': '에이전트가 이 저장소의 이전 채팅을 검색하고 찾은 턴을 읽을 수 있습니다. 끄면 할 수 없습니다.',
+  'settings.experimental.pastChats.detail': '다음 턴부터 이 컴퓨터의 에이전트에 적용되며 클라우드 워크스페이스는 제외됩니다. 오래된 채팅에는 실수도 남아 있으므로 에이전트에게 찾은 내용을 코드와 대조해 확인하도록 안내합니다.',
   'settings.experimental.replay.label': '기록된 트래픽 재생',
   'settings.experimental.replay.help': '개발 빌드 전용입니다. Claude Code와 Codex는 실행되지 않고 실제 에이전트의 기록으로 응답합니다. 메시지의 단어(approval, question, plan, limit, crash)가 기록을 고르며, 없으면 일반 응답이 재생됩니다. 에이전트에는 아무것도 전송되지 않습니다.',
   'replay.notice': '기록을 재생하는 중: 실행 중인 에이전트가 없습니다.',

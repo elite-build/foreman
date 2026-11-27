@@ -260,7 +260,8 @@ export class MobileService {
     if (mode === 'lan' && (!this.lanServer || !this.deps.store.state.settings.mobileLanEnabled)) throw new Error('Turn on same-Wi-Fi access first.')
     const secret = token()
     const origin = mode === 'private' ? this.deps.store.state.settings.mobileUrl : `http://${this.deps.store.state.settings.mobileLanAddress}:${this.boundLanPort}`
-    const url = `${origin}/?pair=${secret}`
+    // The secret rides in the fragment, which a browser never sends: it stays out of request lines, proxies and logs.
+    const url = `${origin}/#pair=${secret}`
     this.pairing = { mode, token: secret, url, qr: await QRCode.toDataURL(url, { margin: 2, width: 220 }), expiresAt: Date.now() + PAIR_MS }
     return this.info()
   }
@@ -583,13 +584,11 @@ export class MobileService {
       }
       return this.staticFile(res, 'index.html', 'text/html; charset=utf-8', mode)
     }
-    // The full app for a browser (docs/server.md, "A browser"): signed in, it loads; with a pairing link, the phone page
-    // pairs it as a browser and comes back; otherwise it says how to sign in.
+    // The full app for a browser (docs/server.md, "A browser"): signed in, it loads; otherwise it says how to sign in. A
+    // browser's pairing link opens the phone page (`/?then=/app#pair=…`), which pairs it and comes back here.
     if (req.method === 'GET' && pathname === '/app/') return this.redirect(res, `/app${url.search}`)
     if (req.method === 'GET' && pathname === '/app') {
       if (this.auth(req, mode)) return this.app(res, mode)
-      const pair = url.searchParams.get('pair')
-      if (pair) return this.redirect(res, `/?pair=${encodeURIComponent(pair)}&then=/app`)
       return this.signIn(res, mode)
     }
     if (pathname.startsWith('/app/')) throw new HttpError(404, 'Not found.')

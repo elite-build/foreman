@@ -402,6 +402,7 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   'settings-appearance': () => (openSettingsPage({ section: 'appearance' }), '.settings-view'),
   'settings-accessibility': () => (openSettingsPage({ section: 'accessibility' }), '.settings-view'),
   'settings-cloud': () => (openSettingsPage({ section: 'cloud' }), '.settings-view'),
+  'settings-experimental': () => (openSettingsPage({ section: 'experimental' }), '.settings-view'),
   'settings-repo': (f) => (openSettingsPage({ section: 'repo', repoId: f.repoId }), '.settings-view'),
   'settings-integrations': () => (openSettingsPage({ section: 'integrations' }), '.settings-view'),
   // Devices → Computers: hand-offs, control from other computers, pairing.

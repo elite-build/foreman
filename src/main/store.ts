@@ -260,6 +260,8 @@ export function defaultSettings(): Settings {
     showResourceUsage: true,
     // Flows are an experiment: off until the person here turns them on (a repository can't).
     flows: false,
+    // An experiment: agents search this repository's earlier chats only once the person here turns it on.
+    pastChatSearch: false,
     replayTraffic: false,
     diagnostics: true,
     terminalScrollbackMb: 10,

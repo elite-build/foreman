@@ -184,7 +184,7 @@ describe('ApiDispatcher', () => {
   })
 
   it('tells a session without admin who is paired but no pairing link or code, and leaves the window untimed when asked', async () => {
-    const mobile = { devices: [{ id: 'd1' }], pairing: { mode: 'lan', url: 'http://x/?pair=SECRET', qr: 'data:', expiresAt: 1 }, pending: { id: 'p', code: '123456' } }
+    const mobile = { devices: [{ id: 'd1' }], pairing: { mode: 'lan', url: 'http://x/#pair=SECRET', qr: 'data:', expiresAt: 1 }, pending: { id: 'p', code: '123456' } }
     const devices = { paired: [{ id: 'c1' }], pairing: { code: '654321', expiresAt: '' } }
     const timed = vi.spyOn(perf, 'timed')
     const dispatcher = new ApiDispatcher({ api: { mobileInfo: async () => mobile, devicesInfo: async () => devices }, signals: {}, perfPrefix: (s) => (s.kind === 'window' ? null : 'ws') })

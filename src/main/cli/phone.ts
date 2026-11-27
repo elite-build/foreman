@@ -44,10 +44,10 @@ function waiting(info: MobileInfo): NonNullable<MobileInfo['pending']> {
   return info.pending
 }
 
-/** `https://host/?pair=x` → `https://host/app?pair=x`: the full app, which signs a browser in through the same pairing. */
+/** `https://host/#pair=x` → `https://host/?then=/app#pair=x`: the same pairing, as a browser, which then opens the full app. */
 function appUrl(url: string): string {
   const u = new URL(url)
-  return `${u.origin}/app${u.search}`
+  return `${u.origin}/?then=/app${u.hash}`
 }
 
 const status: MethodDef = {

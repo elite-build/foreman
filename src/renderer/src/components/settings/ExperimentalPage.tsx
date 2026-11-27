@@ -10,6 +10,7 @@ const DEFAULTS = {
   forkToNewTab: true,
   showResourceUsage: true,
   flows: false,
+  pastChatSearch: false,
   replayTraffic: false,
   diagnostics: true
 } satisfies Partial<Settings>
@@ -75,6 +76,15 @@ export function ExperimentalPage() {
           checked={settings.flows}
           onChange={(flows) => void saveSettings({ flows })}
           onReset={reset('flows')}
+        />
+        <ToggleRow
+          id="past-chat-search"
+          label={t('settings.experimental.pastChats.label')}
+          help={t('settings.experimental.pastChats.help')}
+          detail={t('settings.experimental.pastChats.detail')}
+          checked={settings.pastChatSearch}
+          onChange={(pastChatSearch) => void saveSettings({ pastChatSearch })}
+          onReset={reset('pastChatSearch')}
         />
         {/* Development builds only (the app also ignores the setting when packaged): agents answer from recorded traffic. */}
         {import.meta.env.DEV && (

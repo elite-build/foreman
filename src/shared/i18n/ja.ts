@@ -5976,6 +5976,9 @@ export const ja: Catalogue = {
   // Flows (docs/loops-and-graphs.md): the Experimental switch, the Automations list and editor, and the problems a flow file can have.
   'settings.experimental.flows.label': 'フロー',
   'settings.experimental.flows.help': 'ループを含むエージェントのステップのグラフ。オートメーションから実行します。オフ：フローに関するものは何も表示されません。',
+  'settings.experimental.pastChats.label': '過去のチャットの検索',
+  'settings.experimental.pastChats.help': 'エージェントがこのリポジトリの以前のチャットを検索し、見つけたターンを読めます。オフ：できません。',
+  'settings.experimental.pastChats.detail': '次のターンから、このコンピューター上のエージェントで有効です。クラウドのワークスペースは対象外です。古いチャットには誤りも残っているため、見つけた内容はコードで確かめるようエージェントに伝えます。',
   'settings.experimental.replay.label': '記録したトラフィックを再生',
   'settings.experimental.replay.help': '開発ビルド専用です。Claude Code と Codex は実行されず、実際のエージェントの記録から応答します。メッセージ中の単語（approval、question、plan、limit、crash）で記録を選び、なければ通常の応答を再生します。エージェントには何も送信されません。',
   'replay.notice': '記録を再生中：エージェントは実行されていません。',

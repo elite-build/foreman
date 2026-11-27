@@ -6022,6 +6022,9 @@ export const es: Catalogue = {
   // Flows (docs/loops-and-graphs.md): the Experimental switch, the Automations list and editor, and the problems a flow file can have.
   'settings.experimental.flows.label': 'Flujos',
   'settings.experimental.flows.help': 'Grafos de pasos de agentes con bucles, que se ejecutan desde Automatizaciones. Desactivado: no aparece nada de los flujos.',
+  'settings.experimental.pastChats.label': 'Búsqueda en chats anteriores',
+  'settings.experimental.pastChats.help': 'Los agentes pueden buscar en los chats anteriores de este repositorio y leer un turno que encuentren. Desactivado: no pueden.',
+  'settings.experimental.pastChats.detail': 'Desde su siguiente turno, para los agentes de este equipo; no en los espacios de trabajo en la nube. Los chats antiguos también conservan sus errores, así que se pide a los agentes que comprueben lo que encuentren con el código.',
   'settings.experimental.replay.label': 'Reproducir tráfico grabado',
   'settings.experimental.replay.help': 'Solo para compilaciones de desarrollo. Claude Code y Codex responden con grabaciones de los agentes reales en lugar de ejecutarse: una palabra de tu mensaje (approval, question, plan, limit o crash) elige la grabación; si no, se reproduce una respuesta simple. No se envía nada a ningún agente.',
   'replay.notice': 'Reproduciendo una grabación: no se está ejecutando ningún agente.',

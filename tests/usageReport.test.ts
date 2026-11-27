@@ -66,6 +66,20 @@ describe('usage report', () => {
     expect(report([...turn('s1', 'x', 2, { ms: 10 }), ...turn('copy', 'x', 2, { cost: 0.25, ms: 10 })]).total).toMatchObject({ turns: 1, costUsd: 0.25, partial: false })
   })
 
+  it('counts what a Claude turn added to the running total its result reports', () => {
+    const before = (rows: UsageRow[], costBeforeUsd: number) => rows.map((r) => (r.kind === 'result' ? { ...r, costBeforeUsd } : r))
+    const rows: UsageRow[] = [
+      ...before(turn('s1', 't1', 3, { cost: 2, ms: 10 }), 1.5),
+      ...before(turn('s2', 't2', 2, { cost: 0.7, ms: 10 }), 0.5),
+      // A total below the one before: the conversation started again, so all of it is this turn's.
+      ...before(turn('s3', 't3', 2, { cost: 0.25, ms: 10 }), 4)
+    ]
+    const r = report(rows)
+    // Claude: 0.5 and 0.25. A cost Codex reported would be the turn's own: 0.7.
+    expect(r.byModel.find((m) => m.agent === 'claude')!.costUsd).toBeCloseTo(0.75)
+    expect(r.byModel.find((m) => m.agent === 'codex')!.costUsd).toBeCloseTo(0.7)
+  })
+
   it('counts a turn from an imported chat when the original is not here', () => {
     const r = report(turn('copy', 'only', 1, { cost: 1, ms: 5 }))
     expect(r.total).toMatchObject({ turns: 1, costUsd: 1 })
@@ -100,6 +114,27 @@ describe('usage from the database', () => {
     expect(data.usage(30).total).toMatchObject({ turns: 2, costUsd: 0.4, partial: true })
     expect(JSON.stringify(store.db.db.prepare('SELECT * FROM items').all())).not.toContain('secret')
     expect(data.usage(7).byModel).toMatchObject([{ agent: 'claude', model: 'opus', turns: 2 }])
+    store.close()
+  })
+
+  it('takes each Claude turn’s share of the running total, from a previous result before the range too', async () => {
+    const store = new Store(await tempDir('foreman-usage-'))
+    await store.load()
+    store.state.workspaces.push(ws('w1'))
+    store.state.sessions.push(tab('s1', 'w1'))
+    const sent = (agent: 'claude' | 'opencode') => (id: string, turnId: string, at: string): ChatItem => ({ kind: 'user', id, turnId, text: 'q', at, agent, model: agent === 'claude' ? 'opus' : 'x' })
+    const items = [
+      sent('claude')('u1', 't1', day(60)), result('r1', 't1', 1),
+      sent('claude')('u2', 't2', day(3)), result('r2', 't2', 1.4),
+      // Another agent's turn in between, with a cost of its own: not part of Claude's total.
+      sent('opencode')('u3', 't3', day(2)), result('r3', 't3', 0.2),
+      sent('claude')('u4', 't4', day(1)), result('r4', 't4', 1.5)
+    ]
+    for (const i of items) await store.appendChat('s1', i)
+    const r = new DataService(store, () => NOW).usage(30)
+    expect(r.total.turns).toBe(3)
+    expect(r.total.costUsd).toBeCloseTo(0.4 + 0.2 + 0.1)
+    expect(r.byModel.find((m) => m.agent === 'claude')!.costUsd).toBeCloseTo(0.5)
     store.close()
   })
 

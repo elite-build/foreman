@@ -1314,6 +1314,9 @@ export interface Settings {
   showResourceUsage: boolean
   // Flows (docs/loops-and-graphs.md): off by default; off, nothing about flows appears and repo flow files are ignored.
   flows: boolean
+  // Past chat search (docs/ai-memory.md, D): off by default; on, every local turn's foreman-app server offers search_past_chats
+  // and read_past_turn over the earlier chats of the same repository.
+  pastChatSearch: boolean
   // Development builds only (Settings → Experimental): Claude Code and Codex answer from recorded traffic instead of running
   // (docs/agents.md, 9.5). A packaged build ignores it.
   replayTraffic: boolean

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { tabUsage, usageLines, workspaceUsage } from '../src/shared/usage'
+import { ownCost, tabUsage, turnCosts, usageLines, workspaceUsage } from '../src/shared/usage'
 import type { ChatItem } from '../src/shared/types'
 
 const turn = (turnId: string, durationMs: number, costUsd?: number): ChatItem[] => [
@@ -20,14 +20,16 @@ describe('usage', () => {
   })
 
   it('does not double count a forked tab that carries its parent\'s turns', () => {
-    const parent = [...turn('a', 10_000, 0.1), ...turn('b', 5_000, 0.2)]
-    const fork = [...turn('a', 10_000, 0.1), ...turn('b', 5_000, 0.2), ...turn('c', 1_000, 0.05)]
+    // Claude's costs are the conversation's running total: the turns cost 0.1, 0.2 and 0.05.
+    const parent = [...turn('a', 10_000, 0.1), ...turn('b', 5_000, 0.3)]
+    const fork = [...turn('a', 10_000, 0.1), ...turn('b', 5_000, 0.3), ...turn('c', 1_000, 0.35)]
     const usage = workspaceUsage([
       { id: 'p', agent: 'claude', items: parent },
       { id: 'f', agent: 'claude', items: fork }
     ])
     expect(usage.tabs.f).toMatchObject({ turns: 3 })
-    expect(usage.total).toEqual({ turns: 3, agentMs: 16_000, costUsd: 0.35000000000000003, partial: false })
+    expect(usage.total).toMatchObject({ turns: 3, agentMs: 16_000, partial: false })
+    expect(usage.total.costUsd).toBeCloseTo(0.35)
   })
 
   it('labels the total partial when a tab with turns has no cost, and says why for the tab', () => {
@@ -39,6 +41,39 @@ describe('usage', () => {
     expect(usage.tabs.x).toMatchObject({ turns: 1, costUsd: undefined, costNote: 'Cost: n/a for Codex' })
     expect(usage.tabs.empty.costNote).toBeUndefined()
     expect(usage.total).toMatchObject({ turns: 2, agentMs: 5_000, costUsd: 0.5, partial: true })
+  })
+
+  it('counts what each Claude turn added to its running total, not the total again', () => {
+    const items = [...turn('a', 1_000, 0.5), ...turn('b', 1_000, 1.25), ...turn('c', 1_000, 2)]
+    expect(tabUsage(items, 'claude').costUsd).toBeCloseTo(2)
+    expect([...turnCosts(items, 'claude').values()].map((c) => c?.toFixed(2))).toEqual(['0.50', '0.75', '0.75'])
+    expect(workspaceUsage([{ id: 't', agent: 'claude', items }]).total.costUsd).toBeCloseTo(2)
+    // An agent that reports each turn's own cost adds them up as they are.
+    expect(tabUsage(items, 'opencode').costUsd).toBeCloseTo(3.75)
+  })
+
+  it('takes a Claude turn from Claude’s previous total, past another agent’s turns and a turn with two results', () => {
+    const items: ChatItem[] = [
+      { kind: 'user', id: 'u:a', turnId: 'a', text: 'one', at: '1', agent: 'claude', model: 'opus' },
+      ...turn('a', 1_000, 1),
+      { kind: 'user', id: 'u:b', turnId: 'b', text: 'two', at: '2', agent: 'opencode', model: 'x' },
+      ...turn('b', 1_000, 0.2),
+      { kind: 'user', id: 'u:c', turnId: 'c', text: 'three', at: '3', agent: 'claude', model: 'opus' },
+      // A message steered in: two results in one turn, each the running total.
+      { kind: 'result', id: 'r:c1', turnId: 'c', ok: true, costUsd: 1.5 },
+      ...turn('c', 1_000, 1.75)
+    ]
+    const costs = turnCosts(items, 'claude')
+    expect(costs.get('a')).toBe(1)
+    expect(costs.get('b')).toBe(0.2)
+    expect(costs.get('c')).toBeCloseTo(0.75)
+  })
+
+  it('reads a total that went down as a conversation that started again', () => {
+    expect(ownCost(0.4, 2)).toBe(0.4)
+    expect(ownCost(2.5, 2)).toBe(0.5)
+    expect(ownCost(undefined, 2)).toBeUndefined()
+    expect(ownCost(0.3, undefined)).toBe(0.3)
   })
 
   it('is not partial when no tab has turns', () => {

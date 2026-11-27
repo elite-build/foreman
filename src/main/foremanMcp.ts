@@ -4,11 +4,12 @@ import { PassThrough } from 'node:stream'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
-import { FLOW_DECIDE_TOOL, FOREMAN_TOOLS, READ_CHAT_HISTORY_TOOL, type ForemanToolName } from '../shared/foremanTools'
+import { FLOW_DECIDE_TOOL, FOREMAN_TOOLS, READ_CHAT_HISTORY_TOOL, READ_PAST_TURN_TOOL, SEARCH_PAST_CHATS_TOOL, type ForemanToolName } from '../shared/foremanTools'
 import type { ReadHistoryArgs, ReadHistoryResult } from '../shared/chatHandOff'
 import type { Session } from '../shared/types'
 import type { TurnCap } from '../shared/agentAccess'
 import type { McpLaunch } from './agents/types'
+import type { ReadPastTurnArgs, SearchPastChatsArgs } from './pastChats'
 import type { ForemanActions } from './foremanActions'
 import { DELEGATION_TOOLS, delegationToolNames } from '../shared/foremanDelegation'
 import type { ForemanDelegation } from './foremanDelegation'
@@ -29,6 +30,13 @@ interface Deps {
   flowsOn?(): boolean
   // `read_chat_history`: the turns of a session's own chat. Not offered where this isn't given.
   chatHistory?(sessionId: string, args: ReadHistoryArgs): Promise<ReadHistoryResult>
+  // Settings → Experimental → Past chat search (src/main/pastChats.ts): off, neither tool is offered; read as each turn's
+  // server is made, so a change reaches the next turn.
+  pastChats?: {
+    on(): boolean
+    search(sessionId: string, args: SearchPastChatsArgs): Promise<string>
+    read(sessionId: string, args: ReadPastTurnArgs): Promise<string>
+  }
   // Foreman for Chrome: the browser tools (browser_*), offered when enabled() and to interactive turns only (core.ts runs them).
   browser?: {
     enabled(): boolean
@@ -193,6 +201,27 @@ export class ForemanMcp {
         return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
       }
     })
+    // Earlier chats of the calling chat's repository (the grant's, never one the arguments name): experimental, off by default.
+    const pastChats = this.deps.pastChats
+    if (pastChats?.on()) {
+      const answer = async (call: (sessionId: string) => Promise<string>) => {
+        try {
+          return { content: [{ type: 'text' as const, text: await call(this.scope(grantId).sessionId) }] }
+        } catch (err) {
+          return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
+        }
+      }
+      server.registerTool(SEARCH_PAST_CHATS_TOOL.name, {
+        description: SEARCH_PAST_CHATS_TOOL.description,
+        inputSchema: SEARCH_PAST_CHATS_TOOL.schema,
+        annotations: { readOnlyHint: true }
+      }, (args) => answer((sessionId) => pastChats.search(sessionId, args)))
+      server.registerTool(READ_PAST_TURN_TOOL.name, {
+        description: READ_PAST_TURN_TOOL.description,
+        inputSchema: READ_PAST_TURN_TOOL.schema,
+        annotations: { readOnlyHint: true }
+      }, (args) => answer((sessionId) => pastChats.read(sessionId, args)))
+    }
     for (const name of Object.keys(FOREMAN_TOOLS) as ForemanToolName[]) {
       const definition = FOREMAN_TOOLS[name]
       if (readOnly && !definition.readOnly) continue

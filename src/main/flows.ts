@@ -50,6 +50,7 @@ import { turnAnswer, truncateBytes } from '../shared/handOff'
 import { fillTemplate, templatePlaceholders } from '../shared/promptTemplates'
 import { isMemoryPath } from '../shared/memoryPaths'
 import { GLOBAL_ACTIVE_CAP } from '../shared/schedule'
+import { turnCosts } from '../shared/usage'
 import type { PrFacts } from '../shared/board'
 import type { ApprovalRequest, ApprovalResponse, ChatItem, CheckResult, ContextUsage, MessageOrigin, TurnOutcome } from '../shared/types'
 import { fingerprintOf, refuseChangedParts, sha } from './schedules'
@@ -1282,11 +1283,13 @@ export class FlowService {
       if (tree) record.tree = { ...record.tree, end: tree }
     }
     this.count(run, record, end?.durationMs !== undefined ? end.durationMs / 60_000 : (this.deps.now() - Date.parse(record.startedAt)) / 60_000)
-    // What the turn cost, where the agent says (Claude's result items): it counts against each loop pass's cost bound.
-    const results = items.filter((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result' && i.turnId === record.turnId && typeof i.costUsd === 'number')
-    if (results.length) {
-      record.costUsd = results.reduce((n, r) => n + (r.costUsd ?? 0), 0)
-      for (const name of Object.keys(record.loops ?? {})) if (run.loops[name]) run.loops[name].costUsed = (run.loops[name].costUsed ?? 0) + record.costUsd
+    // What the turn cost on its own, where the agent says (Claude's running total, less its previous turn's in the tab): it
+    // counts against each loop pass's cost bound.
+    // The message Foreman sent for the step records the agent it went to; the default only stands in for one that didn't.
+    const cost = record.turnId ? turnCosts(items, DEFAULT_AGENT).get(record.turnId) : undefined
+    if (cost !== undefined) {
+      record.costUsd = cost
+      for (const name of Object.keys(record.loops ?? {})) if (run.loops[name]) run.loops[name].costUsed = (run.loops[name].costUsed ?? 0) + cost
     }
     record.endedAt = this.iso()
     if (outcome !== 'completed') {

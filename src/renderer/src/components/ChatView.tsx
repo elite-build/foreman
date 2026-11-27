@@ -3,6 +3,7 @@ import { Activity, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo
 import { isFallback } from '../../../shared/agentCapabilities'
 import { AGENTS, modelInfo } from '../../../shared/agents'
 import { isMixed, turnAuthors, type AgentSwitch, type ChatDivider, type TurnAuthor } from '../../../shared/switchAgent'
+import { turnCosts } from '../../../shared/usage'
 import { continueEligibility, continueFollowUp, turnAnswer } from '../../../shared/handOff'
 import { partSize, receiptLine } from '../../../shared/context'
 import type { PlainKey } from '../../../shared/i18n'
@@ -300,6 +301,8 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
   const mixed = useMemo(() => isMixed(items), [items])
   const lastAuthors = useRef(new Map<string, TurnAuthor>())
   const authors = useMemo(() => (lastAuthors.current = stableAuthors(turnAuthors(items, { agent: session.agent }), lastAuthors.current)), [items, session.agent])
+  // Each turn's own cost: Claude reports its conversation's running total, so a turn shows what it added.
+  const costs = useMemo(() => turnCosts(items, session.agent), [items, session.agent])
   // When each turn's message was sent: a reply says which message it answers.
   const askedAt = useMemo(() => {
     const at = new Map<string, string>()
@@ -530,6 +533,7 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
           query={kind === 'tool' || kind === 'thinking' ? query : undefined}
           askedAt={kind === 'assistant' && turnId ? askedAt.get(turnId) : undefined}
           turnItems={(kind === 'turn-end' || kind === 'result') && turnId ? byTurn.get(turnId) : undefined}
+          turnCost={(kind === 'turn-end' || kind === 'result') && turnId ? costs.get(turnId) : undefined}
           session={kind === 'turn-end' || signIn ? session : undefined}
           items={signIn ? items : undefined}
           isLatestEnd={latest}
@@ -812,6 +816,8 @@ type RowProps = {
   askedAt?: string
   // This item's turn: everything in the log with its turn id.
   turnItems?: ChatItem[]
+  // What this turn cost on its own, where its agent reported a cost (shared/usage.ts, turnCosts).
+  turnCost?: number
   session?: Session
   items?: ChatItem[]
   isLatestEnd: boolean
@@ -848,6 +854,7 @@ const ChatRow = memo(function ChatRow({
   query = '',
   askedAt,
   turnItems = EMPTY,
+  turnCost,
   session,
   items = EMPTY,
   isLatestEnd,
@@ -993,6 +1000,7 @@ const ChatRow = memo(function ChatRow({
         <TurnEnd
           item={item}
           turnItems={turnItems}
+          cost={turnCost}
           session={session}
           agent={agent}
           running={running}
@@ -1017,7 +1025,7 @@ const ChatRow = memo(function ChatRow({
           <span className="mono">
             {item.ok ? '' : `${t('chat.result.error')} · `}
             {item.durationMs !== undefined && t('chat.seconds', { s: (item.durationMs / 1000).toFixed(1) })}
-            {item.costUsd !== undefined && item.costUsd > 0 && ` · $${item.costUsd.toFixed(2)}`}
+            {turnCost !== undefined && turnCost > 0 && ` · $${turnCost.toFixed(2)}`}
           </span>
         </div>
       )
@@ -1177,6 +1185,7 @@ function TurnReceipt({
 function TurnEnd({
   item,
   turnItems,
+  cost,
   session,
   agent,
   running,
@@ -1194,6 +1203,8 @@ function TurnEnd({
   item: Extract<ChatItem, { kind: 'turn-end' }>
   // Everything in the log from this turn.
   turnItems: ChatItem[]
+  // What the turn cost on its own, where its agent said.
+  cost?: number
   session: Session
   // The agent that answered this turn.
   agent: AgentKind
@@ -1221,7 +1232,6 @@ function TurnEnd({
   // Docs/agents.md 7.2: the latest turn of a chat paused at a usage limit isn't a failure: it has its own card.
   const paused = Boolean(item.limit) && session.lastTurn?.turnId === item.turnId && session.lastTurn.outcome === 'limit'
   const failed = (item.outcome === 'error' || item.outcome === 'interrupted') && !paused
-  const cost = turnItems.find((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result' && i.turnId === item.turnId)?.costUsd
   const tools = turnItems.filter((i): i is ToolItem => i.kind === 'tool' && i.turnId === item.turnId)
   const commands = tools.filter((i) => i.name === 'Bash' && i.status !== 'running')
   // An employee's run that asked the person, or had an outward action held for them, ended waiting for you.

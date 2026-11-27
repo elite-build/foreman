@@ -5,7 +5,9 @@
 // Honesty rules: a cost nobody reported stays unknown (never 0), and a total that
 // leaves any turn out is partial. A turn that exists in several chats (a fork
 // carries its parent's turns; an imported copy carries the original's) counts once.
+// Claude reports its conversation's running total, so a turn counts what it added.
 import type { AgentKind } from './agents'
+import { costIsRunningTotal, ownCost } from './usage'
 
 /** One chat item that bears on usage: who wrote it, which turn, when, and what it says about cost and time. */
 export interface UsageRow {
@@ -14,6 +16,9 @@ export interface UsageRow {
   kind: 'user' | 'result' | 'turn-end'
   at: string
   costUsd?: number
+  // On a result: the cost reported by the chat's previous result of a turn sent to the same agent (Claude's is a running
+  // total, so this turn's own is the difference: shared/usage.ts, ownCost).
+  costBeforeUsd?: number
   durationMs?: number
   // O1: on a message, the agent and model it was sent to (a tab can switch agents).
   agent?: AgentKind
@@ -67,13 +72,14 @@ interface Turn {
   by?: { agent: AgentKind; model: string }
 }
 
-/** The turns in these rows, once each, from the chat that owns them. */
+/** The turns in these rows (in chat order), once each, from the chat that owns them. */
 function collectTurns(rows: UsageRow[], sessions: Map<string, UsageSession>, workspaces: Map<string, UsageWorkspace>): Turn[] {
-  const byTurn = new Map<string, { owners: Map<string, { start?: string; first: string; agentMs: number; cost?: number; ended: boolean; by?: Turn['by'] }> }>()
+  type Owner = { start?: string; first: string; agentMs: number; cost?: number; before?: number; results: number; ended: boolean; by?: Turn['by'] }
+  const byTurn = new Map<string, { owners: Map<string, Owner> }>()
   for (const row of rows) {
     const turn = byTurn.get(row.turnId) ?? { owners: new Map() }
     byTurn.set(row.turnId, turn)
-    const own = turn.owners.get(row.sessionId) ?? { first: row.at, agentMs: 0, ended: false }
+    const own: Owner = turn.owners.get(row.sessionId) ?? { first: row.at, agentMs: 0, results: 0, ended: false }
     turn.owners.set(row.sessionId, own)
     if (row.at < own.first) own.first = row.at
     if (row.kind === 'user' && (!own.start || row.at < own.start)) own.start = row.at
@@ -81,6 +87,8 @@ function collectTurns(rows: UsageRow[], sessions: Map<string, UsageSession>, wor
     if (row.kind !== 'user') own.ended = true
     if (row.kind === 'turn-end') own.agentMs = row.durationMs ?? own.agentMs
     if (row.kind === 'result') {
+      // A turn with several results (a message steered in): the total before its first, the cost of its last.
+      if (!own.results++) own.before = row.costBeforeUsd
       if (row.costUsd !== undefined) own.cost = row.costUsd
       if (row.durationMs !== undefined && !own.agentMs) own.agentMs = row.durationMs
     }
@@ -98,8 +106,10 @@ function collectTurns(rows: UsageRow[], sessions: Map<string, UsageSession>, wor
       return ia - ib || sa.createdAt.localeCompare(sb.createdAt) || a.localeCompare(b)
     })
     const [sessionId, owner] = candidates[0]
+    // What each copy says the turn cost: for an agent that reports a running total, what the turn added to it.
+    const costOf = ([id, o]: [string, Owner]) => (costIsRunningTotal(o.by?.agent ?? sessions.get(id)!.agent) ? ownCost(o.cost, o.before) : o.cost)
     // A copy with a reported cost beats one without, if copies disagree.
-    const cost = candidates.map(([, o]) => o.cost).find((c) => c !== undefined)
+    const cost = candidates.map(costOf).find((c) => c !== undefined)
     // A turn needs its end or result to count (the same rule as a tab's usage).
     if (!candidates.some(([, o]) => o.ended)) continue
     out.push({ turnId, sessionId, startedAt: owner.start ?? owner.first, agentMs: Math.max(...candidates.map(([, o]) => o.agentMs)), costUsd: cost, by: owner.by })
