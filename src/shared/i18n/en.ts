@@ -4549,6 +4549,7 @@ export const en = {
   'workspaceView.toggleSidePanel': 'Toggle side panel ({key})',
   'workspaceView.toggleTerminal': 'Toggle terminal panel ({key})',
   'workspaceView.createdFrom': 'Created from {base}',
+  'workspaceView.copyBranch': 'Copy branch name',
   'workspaceView.noGit.title': 'Not a git repository',
   'workspaceView.noGit.body': 'Changes and commits need git. Agents still work on the files here, but Foreman can’t show what they changed or rewind a turn.',
   'workspaceView.export.title': 'Export this workspace as a .foreman file',
@@ -4562,9 +4563,8 @@ export const en = {
   'workspaceView.fileUnchanged': 'This file has no changes any more.',
   'workspaceView.compare.title': 'Run the same prompt with other models, each in its own workspace',
   'workspaceView.compare.label': 'Compare…',
-  // A narrow window or 200% zoom: the header's More menu (Compare, Export, Hand off, Open in), the button that opens the
-  // side panel as a sheet, and the header button that shows the workspace list folded to its rail. {key} is a shortcut.
-  'workspaceView.more': 'More',
+  // A narrow window or 200% zoom: the button that opens the side panel as a sheet, and the header button that shows the
+  // workspace list folded to its rail. {key} is a shortcut.
   'workspaceView.panelSheet.title': 'Show changes, files and checks ({key})',
   'workspaceView.showList': 'Show the workspace list ({key})',
   // ---- What a chat can do without asking (dialogs that start a chat), after "Claude Code: " ----

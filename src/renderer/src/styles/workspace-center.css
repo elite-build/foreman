@@ -31,16 +31,31 @@
   min-width: 0;
 }
 .header-name {
+  display: flex;
+  min-width: 0;
+  font-weight: 500;
+}
+/* The name opens the workspace's menu, and gives way with an ellipsis as the plain name did. */
+.header-name-menu,
+.header-name-trigger {
+  min-width: 0;
+  max-width: 100%;
+}
+.header-name-trigger {
+  padding-inline: 6px;
+}
+.header-name-text {
   min-width: 0;
   overflow: hidden;
-  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .header-branch {
-  /* The branch gives way before the workspace's name does (the name was cut to "lisb…" while the branch had room). */
-  flex: 0 8 auto;
+  /* The branch takes only what the name leaves, up to its own width, so it gives way first: shrunk side by side, the
+     name lost a fraction of a pixel too, which was enough to cut "lisbon" to "lisb…" while the branch had room. */
+  flex: 1 1 0;
   min-width: 0;
+  max-width: max-content;
   color: var(--text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -65,8 +80,8 @@
   overflow-clip-margin: 4px;
 }
 /* A narrow column: the buttons keep their icons and drop their words (their aria-label and title still say them).
-   With words they take about 440px; below 680 (inside the padding) keeping them cut the workspace's name short. */
-@container (max-width: 680px) {
+   With words Note and Open take about 170px; below 440 (inside the padding) keeping them cuts the workspace's name short. */
+@container (max-width: 440px) {
   .center-header .header-actions .btn-label {
     display: none;
   }
@@ -145,11 +160,6 @@
 /* Its header is not the window's title bar there. */
 .panel-sheet .drag {
   -webkit-app-region: no-drag;
-}
-/* A narrow window: the Note bar's chip at the end of the chat tab strip. */
-.note-chip {
-  flex: none;
-  margin-left: auto;
 }
 .panel-header {
   font-weight: 500;

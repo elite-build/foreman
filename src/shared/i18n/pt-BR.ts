@@ -4042,6 +4042,7 @@ export const ptBR: Catalogue = {
   'workspaceView.toggleSidePanel': 'Alternar painel lateral ({key})',
   'workspaceView.toggleTerminal': 'Alternar painel do terminal ({key})',
   'workspaceView.createdFrom': 'Criado a partir de {base}',
+  'workspaceView.copyBranch': 'Copiar nome do branch',
   'workspaceView.noGit.title': 'Não é um repositório git',
   'workspaceView.noGit.body': 'Alterações e commits precisam do git. Os agentes continuam trabalhando nos arquivos daqui, mas o Foreman não consegue mostrar o que eles mudaram nem desfazer um turno.',
   'workspaceView.export.title': 'Exportar este espaço de trabalho como um arquivo .foreman',
@@ -4057,7 +4058,6 @@ export const ptBR: Catalogue = {
   'workspaceView.compare.label': 'Comparar…',
   // A narrow window or 200% zoom: the header's More menu (Compare, Export, Hand off, Open in), the button that opens the
   // side panel as a sheet, and the header button that shows the workspace list folded to its rail. {key} is a shortcut.
-  'workspaceView.more': 'Mais',
   'workspaceView.panelSheet.title': 'Mostrar alterações, arquivos e verificações ({key})',
   'workspaceView.showList': 'Mostrar a lista de espaços de trabalho ({key})',
 

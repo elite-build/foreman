@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-// The workspace in a narrow window or at 200% zoom (narrowLayout.ts), as the view draws it. Above 1060 px nothing
-// changes. Under it the header shows the list folded to the rail and offers it back (⌘B), Compare, Export, Hand off and
-// Open in move into one More menu, and the Note bar is a chip in the tab strip. Under 700 px of the workspace's own width
-// the side panel isn't beside the chat: a "Changes 3" button opens it as a sheet. The sidebar's rail has the spaces and
-// the modes at every width, and the one + too while the list is folded away.
+// The workspace in a narrow window or at 200% zoom (narrowLayout.ts), as the view draws it, and its header at every
+// width: the name opens the workspace's menu (Compare, Export, Hand off once a computer is paired…), and the Note bar
+// folds into the header's Note button. Under 1060 px the header shows the list folded to the rail and offers it back
+// (⌘B). Under 700 px of the workspace's own width the side panel isn't beside the chat: a "Changes 3" button opens it
+// as a sheet. The sidebar's rail has the spaces and the modes at every width, and the one + too while the list is
+// folded away.
 import './domShims'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -70,7 +71,7 @@ const original = fakeState.snapshot
 const width = (px: number) => Object.defineProperty(window, 'innerWidth', { configurable: true, value: px })
 const file = (path: string) => ({ path, status: 'modified', additions: 1, deletions: 1, hunks: [] })
 
-function setUp(extra: Record<string, unknown> = {}) {
+function setUp(extra: Record<string, unknown> = {}, snapshot: Record<string, unknown> = {}) {
   Object.assign(fakeState, {
     approvals: [],
     chats: {},
@@ -96,7 +97,8 @@ function setUp(extra: Record<string, unknown> = {}) {
     ...original,
     workspaces: [{ id: 'w1', repoId: 'r1', name: 'lisbon', branch: 'fix-login-redirect', baseBranch: 'main', state: 'ready', path: '/w' }],
     sessions: [{ id: 's1', workspaceId: 'w1', agent: 'claude', status: 'idle', queue: [], title: 'Fix login redirect' }],
-    settings: { ...original.settings, windowLayout: 'panes', terminalPlacement: 'panel-bottom', sidebarSide: 'left', sidePanelSide: 'right' }
+    settings: { ...original.settings, windowLayout: 'panes', terminalPlacement: 'panel-bottom', sidebarSide: 'left', sidePanelSide: 'right' },
+    ...snapshot
   }
   fakeApi.getDiff = vi.fn(async () => ({ scope: 'all', files: [file('src/login.ts'), file('src/redirect.ts'), file('src/session.ts')] }))
 }
@@ -116,20 +118,67 @@ const header = () => screen.getByRole('heading', { name: 'lisbon' }).closest('he
 const sidePanel = () => document.querySelector<HTMLElement>('aside.side-panel')!
 
 describe('a workspace above 1060 px', () => {
-  it('is as it was: the header’s own buttons, the side panel beside the chat and its toggle, the Note bar', async () => {
+  it('has Open, the side panel beside the chat and its toggle', async () => {
     width(1200)
     setUp()
     render(<WorkspaceView workspaceId="w1" hidden={false} />)
-    for (const name of ['Compare…', 'Export…', 'Hand off…', 'Open']) expect(within(header()).getByRole('button', { name })).toBeTruthy()
-    expect(within(header()).queryByRole('button', { name: 'More' })).toBeNull()
+    expect(within(header()).getByRole('button', { name: 'Open' })).toBeTruthy()
     expect(within(header()).getByRole('button', { name: /toggle side panel/i })).toBeTruthy()
     expect(within(header()).queryByRole('button', { name: /^Changes/ })).toBeNull()
     expect(within(header()).queryByRole('button', { name: /workspace list/i })).toBeNull()
     expect(sidePanel().style.display).toBe('')
     expect(await within(sidePanel()).findByText('changes list')).toBeTruthy()
-    expect(screen.getByText('note bar')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /^Note/ })).toBeNull()
     expect(spy('setPanelSheet')).toHaveBeenLastCalledWith(false)
+  })
+})
+
+describe('the workspace header at any width', () => {
+  for (const px of [1200, 900]) {
+    it(`keeps the name and Open, and no row of action buttons (${px} px)`, () => {
+      width(px)
+      setUp()
+      render(<WorkspaceView workspaceId="w1" hidden={false} />)
+      expect(within(header()).getByRole('button', { name: 'lisbon' }).getAttribute('aria-haspopup')).toBe('menu')
+      expect(within(header()).getByRole('button', { name: 'Open' })).toBeTruthy()
+      for (const name of ['Compare…', 'Export…', 'Hand off…', 'More']) expect(within(header()).queryByRole('button', { name })).toBeNull()
+    })
+  }
+
+  it('opens the workspace’s menu from its name: each action named and said what it does', async () => {
+    const user = userEvent.setup()
+    width(1200)
+    setUp({}, { pairedDevices: [{ id: 'd1', name: 'Studio', pairedAt: '2026-11-01T00:00:00Z' }] })
+    render(<WorkspaceView workspaceId="w1" hidden={false} />)
+    await user.click(within(header()).getByRole('button', { name: 'lisbon' }))
+    const menu = screen.getByRole('menu', { name: 'lisbon' })
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items.map((i) => i.querySelector('.ui-menu__label')?.textContent ?? i.textContent)).toEqual(expect.arrayContaining(['Copy branch name', 'Copy path', 'Compare…', 'Export…', 'Hand off…', 'Archive workspace…']))
+    expect(within(menu).getByRole('menuitem', { name: /Export…/ }).textContent).toContain('Export this workspace as a .foreman file')
+    await user.click(within(menu).getByRole('menuitem', { name: /Hand off…/ }))
+    expect(spy('openHandOffTo')).toHaveBeenCalledWith({ workspaceId: 'w1' })
+  })
+
+  it('leaves Hand off out until a computer is paired', async () => {
+    const user = userEvent.setup()
+    width(1200)
+    setUp({}, { pairedDevices: [] })
+    render(<WorkspaceView workspaceId="w1" hidden={false} />)
+    await user.click(within(header()).getByRole('button', { name: 'lisbon' }))
+    const menu = screen.getByRole('menu', { name: 'lisbon' })
+    expect(within(menu).getByRole('menuitem', { name: /Export…/ })).toBeTruthy()
+    expect(within(menu).queryByRole('menuitem', { name: /Hand off…/ })).toBeNull()
+  })
+
+  it('folds the Note bar into a Note button in the header, which opens it', async () => {
+    width(1200)
+    setUp()
+    render(<WorkspaceView workspaceId="w1" hidden={false} />)
+    expect(screen.queryByText('note bar')).toBeNull()
+    const note = within(header()).getByRole('button', { name: 'Note' })
+    expect(note.getAttribute('aria-expanded')).toBe('false')
+    await userEvent.click(note)
+    expect(screen.getByText('note bar')).toBeTruthy()
+    expect(note.getAttribute('aria-expanded')).toBe('true')
   })
 })
 
@@ -147,33 +196,6 @@ describe('a workspace in a narrow window', () => {
     setUp({ narrowList: true })
     render(<WorkspaceView workspaceId="w1" hidden={false} />)
     expect(within(header()).queryByRole('button', { name: /workspace list|show sidebar/i })).toBeNull()
-  })
-
-  it('puts Compare, Export, Hand off and Open in into one More menu, each named and said what it does', async () => {
-    const user = userEvent.setup()
-    width(900)
-    setUp()
-    render(<WorkspaceView workspaceId="w1" hidden={false} />)
-    for (const name of ['Compare…', 'Export…', 'Hand off…', 'Open']) expect(within(header()).queryByRole('button', { name })).toBeNull()
-    await user.click(within(header()).getByRole('button', { name: 'More' }))
-    const menu = screen.getByRole('menu', { name: 'More' })
-    const items = within(menu).getAllByRole('menuitem')
-    expect(items.map((i) => i.querySelector('.ui-menu__label')?.textContent ?? i.textContent)).toEqual(expect.arrayContaining(['Compare…', 'Export…', 'Hand off…', 'Copy path', 'Archive workspace…']))
-    expect(within(menu).getByRole('menuitem', { name: /Export…/ }).textContent).toContain('Export this workspace as a .foreman file')
-    await user.click(within(menu).getByRole('menuitem', { name: /Hand off…/ }))
-    expect(spy('openHandOffTo')).toHaveBeenCalledWith({ workspaceId: 'w1' })
-  })
-
-  it('shows the Note bar as a chip at the end of the tab strip, which opens it', async () => {
-    width(900)
-    setUp()
-    render(<WorkspaceView workspaceId="w1" hidden={false} />)
-    expect(screen.queryByText('note bar')).toBeNull()
-    const chip = within(screen.getByRole('tablist', { name: 'Chats' })).getByRole('button', { name: /^Note/ })
-    expect(chip.getAttribute('aria-expanded')).toBe('false')
-    await userEvent.click(chip)
-    expect(screen.getByText('note bar')).toBeTruthy()
-    expect(chip.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('keeps the side panel beside the chat while both fit (900 px with the rail)', () => {

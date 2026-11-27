@@ -1,9 +1,9 @@
 import { TransferBanner } from './HandOffDialogs'
 import { EmployeeRunBanner } from './employees/EmployeeRunBanner'
-import { BrowserMenu } from './BrowserMenu'
-import { Archive, ArrowRightLeft, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, Minimize2, MoreHorizontal, PanelBottom, PanelLeft, PanelRight, Pencil, Plus, RefreshCw, Rocket, RotateCcw, Upload, Users, X } from 'lucide-react'
+import { BrowserMenuItems } from './BrowserMenu'
+import { Archive, ArrowRightLeft, ChevronDown, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, Minimize2, PanelBottom, PanelLeft, PanelRight, Pencil, Plus, RefreshCw, Rocket, RotateCcw, Upload, Users, X } from 'lucide-react'
 import { compareBlockFor } from '../../../shared/compare'
-import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { compactModelLabel, modelTooltip } from '../../../shared/handOff'
 import { forkTabTitle } from '../../../shared/fork'
@@ -72,7 +72,7 @@ import { archivedTabs, workspaceSurfaces, type WorkspaceSurfaces } from '../arch
 import { ArchivedPanel } from './ArchivedView'
 import { useT, type RendererT } from '../i18n'
 import { formatChord } from '../shortcuts'
-import { Button, Callout, ChipButton, ContextMenu, IconButton, MenuButton, MenuItem, MenuSeparator, Sheet, SplitButton, Spinner, Status, Tab, TabList, TabPanel, Tabs, Tag, TextInput, type TagTone } from '../ui'
+import { Button, Callout, ContextMenu, IconButton, MenuButton, MenuItem, MenuSeparator, Sheet, SplitButton, Spinner, Status, Tab, TabList, TabPanel, Tabs, Tag, TextInput, type TagTone } from '../ui'
 import { AppIcon, DefaultAppMenu, OpenInMenuItems, openDefault, useDefaultLabel } from './OpenIn'
 import { useHandToPm } from './employees/HandToPm'
 import { refreshOpenInApps } from '../openIn'
@@ -81,7 +81,7 @@ import { CloudBanner, CloudPill, useCloudStatusPoll, useWakeOnOpen } from './clo
 import { editorViewsFor, shownEditorView, type WorkspacePanelView } from '../editorLayout'
 import { FlowRunPanel, useWorkspaceFlowRun } from './FlowRunPanel'
 import { LineagePanel, useLineageOn } from './LineagePanel'
-import { listFolds, PANEL_SHEET_BELOW, sidebarShows } from '../narrowLayout'
+import { PANEL_SHEET_BELOW, sidebarShows } from '../narrowLayout'
 import { hasNote } from '../../../shared/note'
 import './editor/editor.css'
 
@@ -595,9 +595,8 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const chatTerminal = usePanelSize('bottom-height', Math.round(windowHeight * 0.35), 120, windowHeight - 320)
   // Editor: the chat's width, shared by all workspaces; the files between it and the side panel keep at least 360px.
   const chatPanel = usePanelSize('editor-chat', 380, 300, Math.min(760, windowWidth * 0.5, (containerWidth || windowWidth) - 360))
-  // A narrow window (narrowLayout.ts): the list folded to its rail, the Note bar a chip in the tab strip, and, when the
-  // chat and the side panel can't sit side by side, the panel as a sheet over the chat. The Editor layout takes none.
-  const narrowWindow = listFolds(windowWidth, windowLayout)
+  // A narrow window (narrowLayout.ts): the list folded to its rail and, when the chat and the side panel can't sit side
+  // by side, the panel as a sheet over the chat. The Editor layout takes neither.
   const folded = !editor && sidebarShows({ windowWidth, windowLayout, leftPanelOpen, narrowList }) === 'rail'
   const asSheet = !editor && (containerWidth || windowWidth) < PANEL_SHEET_BELOW
   const sheetOpen = asSheet && panelSheetOpen && !hidden
@@ -683,8 +682,8 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const tabValue = fileTabValue || chatTabValue
   // The chat's bars (note, setup hint, reviewer) stay over the chat; in Three panes the browser covers it.
   const chatOnScreen = editor || !browserShown
-  // A narrow window: the Note bar is a chip at the end of the tab strip, its editor shown under the strip while open.
-  const noteChip = narrowWindow && !editor && hasChat && chatOnScreen && ws.state !== 'history' && !surfaces.archived
+  // The Note bar folds into the header's Note button; its editor shows under the tab strip while open.
+  const noteInHeader = !editor && hasChat && chatOnScreen && ws.state !== 'history' && !surfaces.archived
   // Editor: the terminal is always under the files; with the side panel a sheet (narrow), it moves under the chat.
   const termPlacement = editor || asSheet ? 'below-chat' : placement
   const belowChat = termPlacement === 'below-chat'
@@ -734,9 +733,6 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const leaveSheet = () => {
     if (sheetOpen) openPanelSheet(false)
   }
-  // A narrow window (not the Editor layout): Compare, Export, Hand off and Open in go into one More menu, so the name and
-  // branch keep their width.
-  const moreMenu = !editor && narrowWindow
 
   const showSession = (id: string) => {
     // In the Editor layout the file stays open beside the chat.
@@ -854,7 +850,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const chatBars = hasChat && chatOnScreen && (
     <>
       {ws.state !== 'history' && (
-        <NoteBar workspace={ws} session={sessions.find((s) => s.id === activeId)} readOnly={surfaces.archived} folded={noteChip} open={noteChip ? noteOpen : undefined} onOpenChange={noteChip ? setNoteOpen : undefined} />
+        <NoteBar workspace={ws} session={sessions.find((s) => s.id === activeId)} readOnly={surfaces.archived} folded={noteInHeader} open={noteInHeader ? noteOpen : undefined} onOpenChange={noteInHeader ? setNoteOpen : undefined} />
       )}
       {!surfaces.archived && <SetupHint workspace={ws} session={sessions.find((s) => s.id === activeId)} />}
       {/* #17: the reviewer tab's running, stopped or stale bar. */}
@@ -1054,7 +1050,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
             {toggleAtStart && !chatAside && !asSheet && panelToggle}
             {surfaces.cloud ? <Cloud size={14} className="faint" aria-label={t('cloud.glyph')} /> : <Folder size={14} className="faint" />}
             <span className="header-name" id={headingId} role="heading" aria-level={1}>
-              {ws.name}
+              <WorkspaceNameMenu ws={ws} sessionId={activeId} surfaces={surfaces} />
             </span>
             {/* A plain folder (Repo.plain) has no branch. */}
             {ws.branch && (
@@ -1077,28 +1073,23 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                 <LayoutGrid size={15} />
               </IconButton>
             )}
-            {moreMenu ? (
-              <HeaderMore ws={ws} sessionId={activeId} surfaces={surfaces} />
-            ) : (
-              <>
-                {/* Compare, hand-off and Open in need a folder on this computer; a cloud workspace has none. */}
-                {surfaces.local && <CompareButton ws={ws} sessionId={activeId} />}
-                {/* Export writes a file on the computer and Open in opens its apps: the window's alone, not a browser's. */}
-                {surfaces.exportable && clientKind === 'window' && (
-                  <Button size="sm" icon={<Upload size={12} />} onClick={() => openExportDialog(ws.id)} title={t('workspaceView.export.title')} aria-label={t('workspaceView.export.label')}>
-                    <span className="btn-label">{t('workspaceView.export.label')}</span>
-                  </Button>
-                )}
-                {surfaces.local && !ws.transfer && (
-                  <Button size="sm" icon={<ArrowRightLeft size={12} />} onClick={() => openHandOffTo({ workspaceId: ws.id })} title={t('workspaceView.handOff.title')} aria-label={t('workspaceView.handOff.label')}>
-                    <span className="btn-label">{t('workspaceView.handOff.label')}</span>
-                  </Button>
-                )}
-                {surfaces.local && <HandToPmButton workspaceId={ws.id} />}
-                {surfaces.local && <BrowserMenu ws={ws} />}
-                {surfaces.local && clientKind === 'window' && <OpenMenu ws={ws} />}
-              </>
+            {/* The note for every chat, folded into this button; it opens the Note bar under the tabs. */}
+            {noteInHeader && (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Pencil size={12} />}
+                aria-expanded={noteOpen}
+                aria-label={t('noteBar.label')}
+                title={noteOpen ? t('noteBar.collapse') : t('noteBar.expand')}
+                onClick={() => setNoteOpen(!noteOpen)}
+              >
+                <span className="btn-label">{t('noteBar.label')}</span>
+                {hasNote(ws.note) && <span className="faint">{t('noteBar.revision', { revision: ws.note!.revision })}</span>}
+              </Button>
             )}
+            {/* Open in opens the computer's apps: the window's alone, not a browser's, and a cloud workspace has no folder here. */}
+            {surfaces.local && clientKind === 'window' && <OpenMenu ws={ws} />}
             {surfaces.terminal && (
               <IconButton label={t('workspaceView.toggleTerminal', { key: keys('mod+alt+KeyJ') })} pressed={terminalShown} onClick={toggleBottomPanel}>
                 <PanelBottom size={15} />
@@ -1299,12 +1290,6 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                   {fileTabs}
                   {previewButton}
                   {chatButtons}
-                  {noteChip && (
-                    <ChipButton className="note-chip" aria-expanded={noteOpen} title={noteOpen ? t('noteBar.collapse') : t('noteBar.expand')} onClick={() => setNoteOpen(!noteOpen)}>
-                      <Pencil size={12} aria-hidden /> {t('noteBar.label')}
-                      {hasNote(ws.note) && <span className="faint">{t('noteBar.revision', { revision: ws.note!.revision })}</span>}
-                    </ChipButton>
-                  )}
                 </TabList>
               </Tabs>
             )}
@@ -1357,78 +1342,94 @@ function LiveBottomPanel({ workspaceId, visible }: { workspaceId: string; visibl
 }
 
 /**
- * A narrow header's More menu (narrowLayout.ts): Compare, Export and Hand off, each with a line saying what it does, then
- * the apps Open in offers, Copy path and Archive, as the Open button's menu has them.
+ * The workspace's name in the header, and the menu it opens: copy the branch or the folder's path, Compare, Hand to
+ * Priya, Export, Hand off (once a computer is paired), the browser agents use, and Archive, each saying what it does.
+ * The actions that used to be buttons beside the name live here, so the name and branch keep their width.
  */
-function HeaderMore({ ws, sessionId, surfaces }: { ws: Workspace; sessionId?: string; surfaces: WorkspaceSurfaces }) {
+function WorkspaceNameMenu({ ws, sessionId, surfaces }: { ws: Workspace; sessionId?: string; surfaces: WorkspaceSurfaces }) {
   const t = useT()
   const reason = useStoreMemo((s) => [ws, s.snapshot!.sessions, t], ([w, sessions, tr]) => compareBlockFor(w, sessions, tr))
-  const compare = surfaces.local
-  const exportable = surfaces.exportable && clientKind === 'window'
-  const handOff = surfaces.local && !ws.transfer
+  const paired = useStore((s) => (s.snapshot!.pairedDevices?.length ?? 0) > 0)
+  const browserOn = useStore((s) => Boolean(s.snapshot!.settings.browserControl))
   const pm = useHandToPm(ws.id)
+  const branch = ws.branch
+  const copy = (text: string) => void attempt(() => navigator.clipboard.writeText(text))
+  // Compare, Hand to Priya, hand-off and the browser need a folder on this computer; a cloud workspace has none.
   const toPm = surfaces.local && pm
-  const openIn = surfaces.local && clientKind === 'window'
-  if (!compare && !exportable && !handOff && !toPm && !openIn) return null
-  return (
-    <MenuButton look="icon" iconOnly label={t('workspaceView.more')} trigger={<MoreHorizontal size={15} />}>
-      {compare && (
+  // Export writes a file on the computer: the window's alone, not a browser's.
+  const exportable = surfaces.exportable && clientKind === 'window'
+  // Hand off moves it to another paired computer, so it waits until there is one.
+  const handOff = surfaces.local && !ws.transfer && paired
+  const groups = [
+    (branch || surfaces.local) && (
+      <>
+        {branch && (
+          <MenuItem icon={<GitBranch size={14} />} description={t('workspaceView.createdFrom', { base: ws.baseBranch })} onSelect={() => copy(branch)}>
+            {t('workspaceView.copyBranch')}
+          </MenuItem>
+        )}
+        {surfaces.local && (
+          <MenuItem icon={<Copy size={14} />} onSelect={() => copy(wsPath(ws))}>
+            {t('openIn.copyPath')}
+          </MenuItem>
+        )}
+      </>
+    ),
+    surfaces.local && (
+      <>
         <MenuItem icon={<Users size={14} />} disabled={Boolean(reason) || !sessionId} reason={reason ?? undefined} description={reason ? undefined : t('workspaceView.compare.title')} onSelect={() => openCompareDialog({ workspaceId: ws.id, sessionId })}>
           {t('workspaceView.compare.label')}
         </MenuItem>
-      )}
-      {exportable && (
-        <MenuItem icon={<Upload size={14} />} description={t('workspaceView.export.title')} onSelect={() => openExportDialog(ws.id)}>
-          {t('workspaceView.export.label')}
-        </MenuItem>
-      )}
-      {handOff && (
-        <MenuItem icon={<ArrowRightLeft size={14} />} description={t('workspaceView.handOff.title')} onSelect={() => openHandOffTo({ workspaceId: ws.id })}>
-          {t('workspaceView.handOff.label')}
-        </MenuItem>
-      )}
-      {toPm && (
-        <MenuItem icon={<Rocket size={14} />} description={t('projects.hand.menu', { name: toPm.name })} onSelect={() => openHandToPm(ws.id)}>
-          {t('projects.hand.label2', { name: toPm.name })}
-        </MenuItem>
-      )}
-      {openIn && (
+        {toPm && (
+          <MenuItem icon={<Rocket size={14} />} description={t('projects.hand.menu', { name: toPm.name })} onSelect={() => openHandToPm(ws.id)}>
+            {t('projects.hand.label2', { name: toPm.name })}
+          </MenuItem>
+        )}
+      </>
+    ),
+    (exportable || handOff) && (
+      <>
+        {exportable && (
+          <MenuItem icon={<Upload size={14} />} description={t('workspaceView.export.title')} onSelect={() => openExportDialog(ws.id)}>
+            {t('workspaceView.export.label')}
+          </MenuItem>
+        )}
+        {handOff && (
+          <MenuItem icon={<ArrowRightLeft size={14} />} description={t('workspaceView.handOff.title')} onSelect={() => openHandOffTo({ workspaceId: ws.id })}>
+            {t('workspaceView.handOff.label')}
+          </MenuItem>
+        )}
+      </>
+    ),
+    surfaces.local && browserOn && <BrowserMenuItems ws={ws} />,
+    !surfaces.archived && (
+      <MenuItem variant="danger" icon={<Archive size={14} />} onSelect={() => openArchiveDialog(ws.id)}>
+        {t('workspaceView.archive')}
+      </MenuItem>
+    )
+  ].filter(Boolean)
+  if (!groups.length) return <span className="header-name-text">{ws.name}</span>
+  return (
+    <MenuButton
+      look="ghost"
+      portal
+      placement="bottom-start"
+      label={ws.name}
+      className="header-name-menu"
+      triggerClassName="header-name-trigger"
+      trigger={
         <>
-          <MenuSeparator />
-          <OpenInMenuItems heading={t('openIn.menu.title', { name: ws.name })} target={{ folder: wsPath(ws) }} onDone={() => undefined} shortcut />
-          <MenuItem icon={<Copy size={14} />} onSelect={() => void attempt(() => navigator.clipboard.writeText(wsPath(ws)))}>
-            {t('openIn.copyPath')}
-          </MenuItem>
-          <MenuSeparator />
-          <MenuItem variant="danger" icon={<Archive size={14} />} onSelect={() => openArchiveDialog(ws.id)}>
-            {t('workspaceView.archive')}
-          </MenuItem>
+          <span className="header-name-text">{ws.name}</span>
+          <ChevronDown size={13} aria-hidden />
         </>
-      )}
+      }
+    >
+      {groups.map((group, i) => (
+        <Fragment key={i}>
+          {i > 0 && <MenuSeparator />}
+          {group}
+        </Fragment>
+      ))}
     </MenuButton>
-  )
-}
-
-/** "Hand to Priya…" in a wide header: shown only where the workspace can become a project. */
-function HandToPmButton({ workspaceId }: { workspaceId: string }) {
-  const t = useT()
-  const pm = useHandToPm(workspaceId)
-  if (!pm) return null
-  return (
-    <Button size="sm" icon={<Rocket size={12} />} onClick={() => openHandToPm(workspaceId)} title={t('projects.hand.menu', { name: pm.name })} aria-label={t('projects.hand.label2', { name: pm.name })}>
-      <span className="btn-label">{t('projects.hand.label2', { name: pm.name })}</span>
-    </Button>
-  )
-}
-
-/** "Compare…" in the header: the same prompt with other models, in sibling workspaces. */
-function CompareButton({ ws, sessionId }: { ws: Workspace; sessionId?: string }) {
-  // A string, not the filtered tabs: a selector that builds a new array every read never settles.
-  const t = useT()
-  const reason = useStoreMemo((s) => [ws, s.snapshot!.sessions, t], ([w, sessions, tr]) => compareBlockFor(w, sessions, tr))
-  return (
-    <Button size="sm" icon={<Users size={12} />} disabled={Boolean(reason) || !sessionId} title={reason ?? t('workspaceView.compare.title')} aria-label={t('workspaceView.compare.label')} onClick={() => openCompareDialog({ workspaceId: ws.id, sessionId })}>
-      <span className="btn-label">{t('workspaceView.compare.label')}</span>
-    </Button>
   )
 }

@@ -150,6 +150,8 @@ export { useTriageInput }
 function WorkspaceMenu({ ws, x, y, onRename, dismiss }: { ws: Workspace; x: number; y: number; onRename: () => void; dismiss: () => void }) {
   const t = useT()
   const unread = useStore((s) => Boolean(s.unread[ws.id]))
+  // Hand off moves the workspace to another paired computer, so it waits until there is one.
+  const paired = useStore((s) => (s.snapshot!.pairedDevices?.length ?? 0) > 0)
   return (
     <ContextMenu x={x} y={y} label={ws.name} onClose={dismiss}>
       <MenuItem onSelect={onRename}>{t('common.rename')}</MenuItem>
@@ -178,7 +180,7 @@ function WorkspaceMenu({ ws, x, y, onRename, dismiss }: { ws: Workspace; x: numb
       <MenuSeparator />
       {/* A cloud workspace has no folder here to export or hand off; its sandbox sleeps and wakes instead. */}
       {!ws.cloud && clientKind === 'window' && <MenuItem onSelect={() => openExportDialog(ws.id)}>{t('sidebar.menu.export')}</MenuItem>}
-      {ws.state === 'ready' && !ws.transfer && !ws.cloud && <MenuItem onSelect={() => openHandOffTo({ workspaceId: ws.id })}>{t('sidebar.menu.handOff')}</MenuItem>}
+      {ws.state === 'ready' && !ws.transfer && !ws.cloud && paired && <MenuItem onSelect={() => openHandOffTo({ workspaceId: ws.id })}>{t('sidebar.menu.handOff')}</MenuItem>}
       {ws.cloud && ws.state !== 'archived' && ws.cloud.status === 'running' && <MenuItem onSelect={() => void cloudAction('sleep', ws, t)}>{t('cloud.action.sleep')}</MenuItem>}
       {ws.cloud && ws.state !== 'archived' && (ws.cloud.status === 'sleeping' || ws.cloud.status === 'capped') && <MenuItem onSelect={() => void cloudAction('wake', ws, t)}>{t('cloud.action.wake')}</MenuItem>}
       {ws.path && <MenuItem onSelect={() => void navigator.clipboard.writeText(ws.path!)}>{t('openIn.copyPath')}</MenuItem>}

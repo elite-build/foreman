@@ -1,14 +1,14 @@
-// The workspace header's browser menu (Foreman for Chrome, shared/browserLink.ts): which of the user's allowed browsers
-// this workspace's agents use. Shown only when Settings → Browser is on; the workspace view shows it for local
-// workspaces only. Choosing writes Workspace.browser; 'none' keeps agents here off any browser.
-import { Globe } from 'lucide-react'
+// The browser agents use (Foreman for Chrome, shared/browserLink.ts), as items in the workspace header's name menu:
+// which of the user's allowed browsers this workspace's agents use. Shown only when Settings → Browser is on; the
+// workspace view offers it for local workspaces only. Choosing writes Workspace.browser; 'none' keeps agents here off
+// any browser.
 import { browserFor } from '../../../shared/browserLink'
 import type { Workspace } from '../../../shared/types'
 import { useT } from '../i18n'
 import { api, attempt, openSettingsPage, useStore } from '../store'
-import { MenuButton, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator } from '../ui'
+import { MenuGroup, MenuItem, MenuLabel, MenuRadioItem } from '../ui'
 
-export function BrowserMenu({ ws }: { ws: Workspace }) {
+export function BrowserMenuItems({ ws }: { ws: Workspace }) {
   const t = useT()
   const settings = useStore((s) => s.snapshot?.settings)
   const links = useStore((s) => s.browserLinks)
@@ -20,22 +20,12 @@ export function BrowserMenu({ ws }: { ws: Workspace }) {
   const choose = (value: string) => void attempt(() => api.updateWorkspace(ws.id, { browser: value }))
 
   return (
-    <MenuButton
-      label={t('workspace.browser.menu')}
-      look="ghost"
-      small
-      portal
-      trigger={
-        <>
-          <Globe size={14} aria-hidden="true" /> {effective ? effective.name : t('workspace.browser.none')}
-        </>
-      }
-    >
+    <>
       <MenuLabel>{t('workspace.browser.menu')}</MenuLabel>
       {allowed.length === 0 ? (
         <MenuLabel>{t('workspace.browser.noneYet')}</MenuLabel>
       ) : (
-        <>
+        <MenuGroup label={t('workspace.browser.menu')}>
           {allowed.map((link) => (
             <MenuRadioItem
               key={link.id}
@@ -50,10 +40,9 @@ export function BrowserMenu({ ws }: { ws: Workspace }) {
           <MenuRadioItem checked={checked === 'none'} onSelect={() => choose('none')}>
             {t('workspace.browser.none')}
           </MenuRadioItem>
-        </>
+        </MenuGroup>
       )}
-      <MenuSeparator />
       <MenuItem onSelect={() => openSettingsPage({ section: 'browser' })}>{t('workspace.browser.settings')}</MenuItem>
-    </MenuButton>
+    </>
   )
 }

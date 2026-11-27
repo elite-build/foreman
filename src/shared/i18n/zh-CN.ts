@@ -4042,6 +4042,7 @@ export const zhCN: Catalogue = {
   'workspaceView.toggleSidePanel': '切换侧边面板（{key}）',
   'workspaceView.toggleTerminal': '切换终端面板（{key}）',
   'workspaceView.createdFrom': '创建自 {base}',
+  'workspaceView.copyBranch': '复制分支名称',
   'workspaceView.noGit.title': '不是 git 仓库',
   'workspaceView.noGit.body': '更改和提交需要 git。智能体仍会处理这里的文件，但 Foreman 无法显示它们改了什么，也无法撤回某一轮。',
   'workspaceView.export.title': '将此工作区导出为 .foreman 文件',
@@ -4057,7 +4058,6 @@ export const zhCN: Catalogue = {
   'workspaceView.compare.label': '比较…',
   // A narrow window or 200% zoom: the header's More menu (Compare, Export, Hand off, Open in), the button that opens the
   // side panel as a sheet, and the header button that shows the workspace list folded to its rail. {key} is a shortcut.
-  'workspaceView.more': '更多',
   'workspaceView.panelSheet.title': '显示更改、文件和检查（{key}）',
   'workspaceView.showList': '显示工作区列表（{key}）',
 
