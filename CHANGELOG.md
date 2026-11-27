@@ -2,6 +2,49 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made. Each release's sections come in the order a reader needs them: **Before you update** (anything to do or know first), **Security**, **Fixed**, **Added**, **Changed**, and **Development** (for contributors only, left out of the release's notes in the app). Releases up to 1.2.12 list them as Added, Changed, Fixed, Security and Development.
 
+## 1.2.15 (2026-11-27)
+
+### Before you update
+
+- Flow cost bounds and AI employees' cost thresholds now count each turn's own cost. Before, they counted a chat's earlier turns again on every turn, so a loop or run often stopped well before its bound; now it runs until it actually reaches it. ([#275](https://github.com/elite-build/foreman/pull/275))
+
+### Security
+
+- With **Ask**, every approval an agent asks for now comes to you. Before, a reviewer set up in the agent's own configuration could answer it instead. ([#275](https://github.com/elite-build/foreman/pull/275))
+- The one-time link that pairs a phone or browser now keeps its secret out of the request, so it no longer reaches server logs, proxies or browser history. A link made before updating no longer works; make a new one. ([#275](https://github.com/elite-build/foreman/pull/275))
+- Foreman now deletes the temporary folders, each holding a copy of your Claude sign-in, that resuming a Claude chat could leave in your temp folder when Foreman quit before Claude did. ([#272](https://github.com/elite-build/foreman/pull/272))
+- Agents using your browser only see and touch tabs in their workspace's **Foreman** tab group, and are refused on blocked sites: mail, Google and Microsoft sign-in, password managers and the Chrome Web Store by default (edit the list under **Blocked sites**). ([#271](https://github.com/elite-build/foreman/pull/271))
+- Nothing asks before an agent clicks or submits a form in your browser, so give agents test accounts. AI employees, automations and flows never get a browser. ([#271](https://github.com/elite-build/foreman/pull/271))
+
+### Fixed
+
+- A link to a file in an agent's reply, such as Antigravity's link to the mock it just wrote, now opens the file; before, it looked like a link and did nothing. Ctrl-click (⌘-click on macOS) shows the file in its folder. ([#269](https://github.com/elite-build/foreman/pull/269))
+- A message sent while Claude Code was running a command no longer ends the turn as **Completed** with the command marked **Failed** and the message unanswered. Claude now answers it in the same turn. ([#272](https://github.com/elite-build/foreman/pull/272))
+- **Usage**, a tab's usage and the cost shown on each turn now count what each turn cost. Before, a chat's earlier turns were counted again on every turn, so totals could be several times too high. ([#275](https://github.com/elite-build/foreman/pull/275))
+- At 200% zoom the workspace's name is no longer cut short while its branch still has room. ([#274](https://github.com/elite-build/foreman/pull/274))
+
+### Added
+
+- **Settings → Browser** lets agents in a workspace use one of your own browsers (Chrome, Edge or Brave) through the new **Foreman for Chrome** extension, whichever agent the workspace runs. Load the extension from **Show extension folder**, click its icon, then **Allow** the browser in Settings. ([#271](https://github.com/elite-build/foreman/pull/271))
+- The menu that opens when you click the workspace's name picks the browser that workspace's agents use, or **No browser**. ([#271](https://github.com/elite-build/foreman/pull/271), [#274](https://github.com/elite-build/foreman/pull/274))
+- **Settings → Experimental → Past chat search** (off by default) lets agents search this repository's earlier chats and read a turn they find, to reuse what an earlier chat worked out. ([#275](https://github.com/elite-build/foreman/pull/275))
+
+### Changed
+
+- The workspace header no longer has a row of buttons. **Compare**, **Hand to Priya**, **Export** and **Hand off** are in the menu that opens when you click the workspace's name, so the name and branch are no longer cut short. ([#274](https://github.com/elite-build/foreman/pull/274))
+- The **Note** row under the chat tabs is now a **Note** button in the workspace header; click it to see and edit the note. ([#274](https://github.com/elite-build/foreman/pull/274))
+- **Hand off** shows only once another computer is paired; before, it showed on every workspace. ([#274](https://github.com/elite-build/foreman/pull/274))
+- **Settings → Agents** shows Claude Code 2.1.330 (the version Foreman bundles) as tested. ([#272](https://github.com/elite-build/foreman/pull/272))
+
+### Development
+
+- CI runs the test suite in four parts at once. Agents run only their branch's own tests before a PR, and a release relies on the latest Nightly and the bump PR's CI instead of local checks. ([#273](https://github.com/elite-build/foreman/pull/273))
+- `npm run pr:screens -- capture --scenario channels` takes a pull request's screenshots of a project's channel at every stage it waits in, and `--scenario hire-employee` of adding an AI employee. ([#270](https://github.com/elite-build/foreman/pull/270))
+- `npm run dev demo <scenario>` starts the demo with only what one area needs and opens on it; `--with` and `--without` add and leave out parts, and `npm run dev demo list` prints them. ([#270](https://github.com/elite-build/foreman/pull/270))
+- The demo's channels move again: since parts took turns, every story's plan was refused and its channel ended stuck at planning. ([#270](https://github.com/elite-build/foreman/pull/270))
+- A `steertool` recording covers a follow-up sent while a tool call runs (`npm run record:agent -- claude steertool`). ([#272](https://github.com/elite-build/foreman/pull/272))
+- Nightly passes again. The extension's public key is allowed in the secret scan, replayed turns carry a `PATH` so ACP terminals find `node` on macOS, the fixture leak check ignores CI runner accounts, and a failed background save of `state.json` is logged instead of escaping as an unhandled rejection. ([#277](https://github.com/elite-build/foreman/pull/277))
+
 ## 1.2.14 (2026-11-25)
 
 ### Fixed
