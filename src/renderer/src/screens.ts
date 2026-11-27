@@ -422,8 +422,8 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openSettingsPage({ section: 'browser' })
     return (await waitFor(() => document.getElementById(rowDomId('browser-control')))) ? '.settings-view' : null
   },
-  // The workspace header's browser menu, open: the allowed browser (the default), No browser, Browser settings.
-  // The workspace's name menu, which holds the browser agents use with the workspace's other actions.
+  // The workspace's name menu, open: the browser agents use (the allowed browser, the default; No browser; Browser
+  // settings) with the workspace's other actions.
   'workspace-browser-menu': async (f) => {
     openWorkspace(f)
     const trigger = await waitFor(element('.center-header .header-name-trigger'))
