@@ -578,7 +578,9 @@ export class Store {
     if (this.saveTimer) return
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null
-      void this.writeState()
+      // Nothing awaits a debounced save, so a failed write (its folder gone, a full disk) is reported here instead
+      // of escaping as an unhandled rejection; the next save writes the whole state again.
+      this.writeState().catch((error) => console.warn('Could not save state.json:', error))
     }, 100)
   }
 

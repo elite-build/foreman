@@ -362,12 +362,16 @@ const HOME_PATHS: RegExp[] = [
   /(?:^|[\s"'=:(])\/home\/(?!user\b|runner\b)[^/<\s"']+/g
 ]
 
+/** The accounts CI runners sign in as. They name no person, and `runner` is an ordinary word (a test runner). */
+const CI_ACCOUNTS = new Set(['runner', 'runneradmin'])
+
 /** What a fixture must not hold. Empty when it is safe to commit. `machine` adds this computer's home folder and login name. */
 export function findLeaks(fixture: Fixture, machine: { home?: string; username?: string } = {}): string[] {
   const found: string[] = []
   const note = (what: string, frame: number) => found.push(`frame ${frame}: ${what}`)
   const home = machine.home ? spellings(machine.home).map((s) => s.toLowerCase()) : []
-  const username = machine.username && machine.username.length >= 4 ? new RegExp(`\\b${escapeRegex(machine.username)}\\b`, 'i') : undefined
+  const login = machine.username && machine.username.length >= 4 && !CI_ACCOUNTS.has(machine.username.toLowerCase()) ? machine.username : undefined
+  const username = login ? new RegExp(`\\b${escapeRegex(login)}\\b`, 'i') : undefined
 
   const inspect = (text: string, frame: number) => {
     const lower = text.toLowerCase()
