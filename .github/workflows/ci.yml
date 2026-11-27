@@ -3,7 +3,7 @@ name: CI
 # Pull requests into main, once they are ready for review: a draft runs nothing, marking it ready starts a run, and each
 # push to a ready PR runs again. The Require CI ruleset requires "Types and design system" and "Tests and build" by name,
 # with no bypass, so a PR whose types, design-system checks or tests fail can't be merged. Renaming either means changing
-# that ruleset too. This is the only full run of the suite a PR gets: agents run `npm run test:changed` locally. Nothing
+# that ruleset too. This is the only full run of the suite a PR gets: agents run only their own tests locally. Nothing
 # runs after a merge: the Release workflow builds both platforms, and Nightly covers macOS, Node 22 and the slower policy
 # checks.
 #

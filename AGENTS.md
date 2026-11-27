@@ -98,7 +98,7 @@ There is no mandatory repository `.env` file for building or running the ordinar
 
 On Windows PowerShell, use `npm.cmd` if execution policy blocks `npm.ps1`; changing machine execution policy is unnecessary. The checks are at the end of this file; [docs/map.md](docs/map.md#commands) has every script with its options. The ones a change most often needs besides them:
 
-- `npm test -- tests/<name>.test.ts` runs one test file. `npm run test:changed` runs only the tests the branch's changes can affect, while working and before a pull request. Don't run the whole `npm test` locally unless the user asks: CI runs it, split four ways, on every ready PR.
+- `npm test -- tests/<name>.test.ts` runs one test file. `npm run test:changed` runs the tests the branch's changes can affect, for the loop while working; `npm run test:changed -- --own` runs only the test files the branch adds or changes (plus `check:ui` for a renderer or i18n change), the check before a pull request. Run the whole `npm test` locally only when the user asks: CI runs it, split four ways, on every ready PR, and nothing merges or is released without it passing.
 - `npm run check:ui` runs the design-system guard and the contrast, i18n, UI and content accessibility checks.
 - `npm run dev` runs the app; `npm run dev demo` runs it on demo data, with no network and no external services.
 - `npm run pr:screens` takes before-and-after fixture screens for a UI pull request (`.claude/skills/create-pr/ui-changes.md`).
@@ -130,4 +130,4 @@ Keep this file as the agent entry point, holding rules and pointers: a table of 
 
 ## Checks
 
-`npm run typecheck`, `npm run test:changed` and `npm run build` must pass locally; CI runs the whole `npm test` on the PR, and it must pass there. `npm run screens` captures every main screen of the real app on a fixture (`-- --compare <a> <b>` diffs two runs); use it when a change could move layout.
+`npm run typecheck`, `npm run build` and `npm run test:changed -- --own` must pass locally; CI runs the whole `npm test` on the PR, and it must pass there. `npm run screens` captures every main screen of the real app on a fixture (`-- --compare <a> <b>` diffs two runs); use it when a change could move layout.

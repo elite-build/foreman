@@ -36,13 +36,13 @@ Don't delete or rewrite an entry that no longer holds. Add a new entry, and put 
 
 ## 2026-11-27: The whole suite runs only in CI, in four parts, and neither a PR nor a release runs it locally
 
-**Decision.** CI splits the suite across four Windows jobs behind the one **Tests and build** check. Before a PR an agent runs `typecheck`, `test:changed` and `build`. A release runs no local checks: it reads the latest Nightly on `main`, and CI tests the bump PR.
+**Decision.** CI splits the suite across four Windows jobs behind the one **Tests and build** check. Before a PR an agent runs `typecheck`, `build` and only its branch's own test files; the whole suite runs locally only when the user asks. A release reads the latest Nightly, and CI tests the bump PR.
 
-**Why.** The suite took 15-17 minutes on one runner, and an agent ran it again locally before each PR, so a PR cost over half an hour of tests and a release more. With few users, moving faster is worth a failure found by CI after the push. This narrows the 2026-11-21 entry.
+**Why.** A PR paid for the 15-17 minute suite twice, locally and in CI. With few users, moving faster is worth a failure found by CI after the push. This narrows the 2026-11-21 entry.
 
-**Turned down.** Only affected tests in CI (nothing runs after a merge, and the import graph misses tests that read files). The PR suite on Linux, for now (likely faster, but Windows-only bugs would reach `main`; to be measured). A time limit per test file that fails CI.
+**Turned down.** `test:changed` before a PR (most PRs touch `en.ts`, which 417 test files import). Only affected tests in CI (nothing runs after a merge). The PR suite on Linux, for now (Windows-only bugs would reach `main`). A per-file time limit that fails CI.
 
-**Revisit when.** A regression reaches `main` that the local run would have caught, or Foreman has many more users.
+**Revisit when.** A regression reaches `main` that a local run would have caught, or Foreman has many more users.
 
 ## 2026-11-24: Release notes are ordered by what the reader has to do, one bullet per effect, and releases stay small
 

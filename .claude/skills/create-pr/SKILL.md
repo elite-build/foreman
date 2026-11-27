@@ -29,9 +29,9 @@ Done when you can say in two sentences what the branch changes and why.
 
 ## 2. Run the checks
 
-Always: `npm run typecheck`, `npm run test:changed`, `npm run build`, `npm run check:repository`.
+Always: `npm run typecheck`, `npm run build`, `npm run test:changed -- --own` (the test files the branch adds or changes, plus `check:ui` for a renderer or i18n change), `npm run check:repository`.
 
-Don't run the whole `npm test` here: CI runs it on the PR, in four parts at once, and that run is what the ruleset requires (step 7). `test:changed` runs everything anyway when the diff touches a setup file, the Vitest config, `tsconfig` or the lockfile.
+Don't run the whole `npm test` unless the user asks for it: CI runs it on the PR, in four parts at once, and that run is what the ruleset requires (step 7).
 
 Add the ones the diff calls for (AGENTS.md, "Development, checks and packaging", is the source of truth; `docs/map.md` describes each command):
 
@@ -75,7 +75,7 @@ When the diff changes what the app draws (anything under `src/renderer/` beyond 
 - **Lead**: one to three sentences before the first heading. Someone who reads only that knows what changed and whether it was verified.
 - **What changed**: the files a reviewer should open first, each with what it does now, and why this way when there was a real alternative. Not every file.
 - **UI**: what [ui-changes.md](ui-changes.md) produced.
-- **Verification**: each command from step 2 with its result (`npm run test:changed`: N files, N tests, pass), and that CI runs the whole suite. Mark proof by kind where it isn't obvious: a test with a fake process is not a run with the real agent, and a fixture screenshot is not a manual check. "Not verified: …, because …" is a fine line to write.
+- **Verification**: each command from step 2 with its result (`npm run test:changed -- --own`: N files, N tests, pass), and that CI runs the whole suite. Mark proof by kind where it isn't obvious: a test with a fake process is not a run with the real agent, and a fixture screenshot is not a manual check. "Not verified: …, because …" is a fine line to write.
 - **Compatibility**: only for the one-way changes from step 3. What an existing install sees when it updates, and what a user has to do. If a user has to do something, the release note gets a `Before you update` line too.
 - **Release note**: one line per effect a user notices, each starting with its section. The sections are the changelog's, in the order a reader needs them:
   - `Before you update`: something the user has to know or do before or right after updating. For example, a habit that stops working, a setting that resets, data that can't go back to the earlier version, or a platform that's no longer supported.
