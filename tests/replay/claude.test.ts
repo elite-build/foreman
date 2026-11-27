@@ -87,6 +87,20 @@ describe('Claude Code replay', () => {
     expect(r.handle.warnings()).toEqual([])
   })
 
+  it('steertool: a message sent while a tool call runs is answered before the turn ends', async () => {
+    current = await replay(claudeDriver, 'claude', 'steertool')
+    const r = current
+    await waitFor(() => expect(r.played.items.some((i) => i.kind === 'tool')).toBe(true))
+    expect(r.turn.steer('Then also say the word: next.')).toBe(true)
+    await r.done
+    expect(sends(r, 'user')).toBe(2)
+    // Claude Code ends the cut-off request with a successful result; the turn goes on to the follow-up's answer.
+    expect(r.played.results).toEqual([{ ok: true }])
+    expect(r.played.find('result')).toHaveLength(1)
+    expect(r.played.find('assistant').map((a) => a.text).join('\n')).toContain('next')
+    expect(r.handle.warnings()).toEqual([])
+  })
+
   it('interrupt: stopping asks Claude Code to interrupt, and the turn ends', async () => {
     const r = await playWith('interrupt', ({ turn }) => void turn.stop())
     expect(sends(r, 'control_request:interrupt')).toBe(1)

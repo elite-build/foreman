@@ -48,6 +48,14 @@ export const CLAUDE_PLANS: AgentRecorder['plans'] = {
     steer: 'Actually, stop at 10.',
     note: 'The person sends a follow-up while the agent is answering (a steer, priority "now").'
   },
+  steertool: {
+    ...PLAN,
+    approvals: 'never-ask',
+    prompt: 'Run the shell command `sleep 8` with the Bash tool, then reply with the single word: done.',
+    steer: 'Then also say the word: next.',
+    duringTool: true,
+    note: 'The person sends a follow-up while a tool call runs: Claude Code aborts the call, ends that request and answers the follow-up in the same turn.'
+  },
   // docs/agents.md 8: a flow persona's `writes` on Claude: Foreman's PreToolUse hook allows a file tool inside the globs and refuses it elsewhere.
   scoped: {
     ...PLAN,

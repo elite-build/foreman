@@ -53,6 +53,21 @@ describe('temp sweep', () => {
     expect(await readdir(tmp)).toEqual([STAGED_DIR])
   })
 
+  it('deletes the folders the Agent SDK left from resuming Claude a day ago, with their copied sign-in', async () => {
+    const tmp = await tempDir()
+    const old = 'claude-resume-82444657-c576-42a6-b51f-bb0b8112cfe2'
+    await entry(tmp, old, 2 * DAY_MS)
+    await writeFile(path.join(tmp, old, '.credentials.json'), '{}')
+    await utimes(path.join(tmp, old), new Date(NOW - 2 * DAY_MS), new Date(NOW - 2 * DAY_MS))
+    // Still in use: a Claude process running now.
+    await entry(tmp, 'claude-resume-fe55f750-d410-43d6-96fb-7200c775007c', 60_000)
+    // Not the SDK's: another name after the prefix.
+    await entry(tmp, 'claude-resume-notes', 2 * DAY_MS)
+
+    expect(await sweepForemanTemp(tmp, NOW)).toBe(1)
+    expect((await readdir(tmp)).sort()).toEqual(['claude-resume-fe55f750-d410-43d6-96fb-7200c775007c', 'claude-resume-notes'])
+  })
+
   it('finds nothing to do in a folder that isn’t there', async () => {
     const tmp = await tempDir()
     expect(await sweepForemanTemp(path.join(tmp, 'missing'), NOW)).toBe(0)

@@ -384,7 +384,7 @@ JSONL, first line a header, then one frame per line:
 
 ### 9.2 Recording
 
-`npm run record:agent -- <agent> <scenario>` runs the real driver in a temporary Git repository with a tee on the transport seam (`spawnClaudeCodeProcess`, `AppServerFactory`, `AcpConnector`, OpenCode's `OpencodeLauncher`, Cursor's `fork`) and a scripted user (approve, answer, steer at a frame, interrupt, kill the process). Scenarios: `plain`, `approval`, `question`, `plan`, `steer`, `interrupt`, `limit`, `crash`, `resume`, and (slice 4a) `fork`, `revert`, `compact`, `goal`, `goalclear`. It costs real usage, so it never runs in tests, and uses the cheapest model the agent offers.
+`npm run record:agent -- <agent> <scenario>` runs the real driver in a temporary Git repository with a tee on the transport seam (`spawnClaudeCodeProcess`, `AppServerFactory`, `AcpConnector`, OpenCode's `OpencodeLauncher`, Cursor's `fork`) and a scripted user (approve, answer, steer at a frame, interrupt, kill the process). Scenarios: `plain`, `approval`, `question`, `plan`, `steer`, `steertool` (Claude: the steer lands while a tool call runs, which Claude Code ends with a successful `aborted_tools` result before it answers the follow-up), `interrupt`, `limit`, `crash`, `resume`, and (slice 4a) `fork`, `revert`, `compact`, `goal`, `goalclear`. It costs real usage, so it never runs in tests, and uses the cheapest model the agent offers.
 
 **Isolation first, then sanitising.** The recorder runs with a fresh `FOREMAN_DATA_DIR`, no integrations, no repository MCP servers, no provider keys and no hooks, so secrets mostly never enter the traffic. The sanitiser (`src/main/agents/fixtures/sanitize.ts`) then replaces paths (`<repo>`, `<home>`, `<tmp>`), tokens, keys, emails, account and organisation ids with stable placeholders, consistent within a file. `tests/agentFixtures.test.ts` fails if any fixture contains the recorder's home path, an email, a key pattern, a JWT (`eyJ…`) or any `env` value that isn't a placeholder. Text that streams in fragments (Claude's `text_delta`, `thinking_delta` and `input_json_delta`, Codex's item deltas) is read **joined, per stream**, by both the sanitiser and the leak check, because a path or a login name can be cut across fragments and match in none of them; where cleaning the joined text changes it, the cleaned text goes in the first fragment and the rest are empty. The recorder writes a fixture only after the leak check passes, and sanitising a file again continues after the placeholder numbers it already holds.
 
@@ -465,7 +465,7 @@ One `###` section per agent that can hold a chat, named as the catalog names it,
 - **Works with a fallback:** taking a chat over from another agent (the earlier turns go in as attributed text).
 - **Not offered:** goals; commands it asks Foreman to run (it starts its own).
 - **Enforced by:** the agent (its permission modes; read-only is plan mode, which the chat can't leave). Every #170 ceiling is held.
-- **Tested:** Claude Code 2.1.301 (recorded, on `claude-haiku-5-5`). No minimum version is set: nothing says which release first had each message the adapter uses.
+- **Tested:** Claude Code 2.1.301 and, for `steertool`, 2.1.330 (recorded, on `claude-haiku-5-5`). No minimum version is set: nothing says which release first had each message the adapter uses.
 - **Fixtures:** `src/main/agents/claude/fixtures`: approval, compact, crash, fork, interrupt, limit (edited), plain, plan, question, resume, revert, scoped, steer, subagents.
 
 ### Codex

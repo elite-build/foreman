@@ -849,8 +849,11 @@ class ClaudeTurn implements AgentTurn {
       }
       case 'result': {
         // The request a follow-up cut off: Claude Code goes on to answer it, so the turn isn't over and nothing failed.
-        if (this.unanswered && cutBySteer(message)) {
-          this.unanswered = 0
+        // Cut during a tool call, it reports success (fixtures/steertool.jsonl): taking that as the end closed Claude
+        // mid-call with the follow-up unanswered. A result still counting queued sends says outright that more follow.
+        const queued = message.queued_turn_count ?? 0
+        if (!this.stopped && (queued > 0 || (this.unanswered && cutBySteer(message)))) {
+          this.unanswered = queued
           return
         }
         const ok = message.subtype === 'success' && !message.is_error
@@ -1182,10 +1185,12 @@ export function assistantOptions(profile: AssistantProfile) {
 }
 
 /**
- * The result Claude Code reports when a "now" message cuts off its request: an error whose diagnostic says the
- * conversation ended on the user's message with no reply begun. It then answers that message in the same session.
+ * The result Claude Code reports when a "now" message cuts off its request: while it writes, an error whose diagnostic
+ * says the conversation ended on the user's message with no reply begun. It then answers that message in the same session.
  */
 function cutBySteer(message: Extract<SDKMessage, { type: 'result' }>): boolean {
+  // During a tool call: the call is aborted and the request ends with success, no reply and nothing queued (2.1.330).
+  if (message.subtype === 'success') return message.terminal_reason === 'aborted_tools' && message.stop_reason === 'tool_use'
   if (message.subtype !== 'error_during_execution') return false
   const first = message.errors?.[0] ?? ''
   return first.startsWith('[ede_diagnostic] result_type=user ') && first.includes(' last_content_type=n/a ')
