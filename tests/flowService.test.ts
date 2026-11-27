@@ -1221,13 +1221,14 @@ describe('after a run, and cost bounds', () => {
   it('a cost bound sums what the loop’s turns cost and stops the run naming it', async () => {
     const h = harness(GREEN.replace('at_most = { iterations = 3, minutes = 30 }', 'at_most = { cost = 1 }'), { checks: ['failed', 'failed', 'failed'] })
     await h.start()
+    // Claude reports the tab's running total; a step counts what its turn added.
     await h.endTurn('completed', 'Built.', 1, 5)
     // The build is outside the loop: its cost doesn't count.
-    await h.endTurn('completed', 'Fixed.', 1, 0.6)
+    await h.endTurn('completed', 'Fixed.', 1, 5.6)
     expect(h.run().loops.green.costUsed).toBeCloseTo(0.6)
-    expect(h.run().steps.find((x) => x.name === 'fix')).toMatchObject({ costUsd: 0.6 })
+    expect(h.run().steps.find((x) => x.name === 'fix')?.costUsd).toBeCloseTo(0.6)
     expect(h.run().steps.find((x) => x.name === 'build')).toMatchObject({ costUsd: 5 })
-    await h.endTurn('completed', 'Fixed again.', 1, 0.6)
+    await h.endTurn('completed', 'Fixed again.', 1, 6.2)
     expect(h.run().state).toBe('stopped')
     expect(h.run().reason).toBe('Stopped: the loop “green” reached its bound of $1.00 (what Claude’s turns reported they cost).')
   })

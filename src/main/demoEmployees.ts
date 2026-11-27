@@ -26,12 +26,27 @@ import { RUN_GOING, type EmployeeRun, type EmployeeTask } from '../shared/employ
 import type { ChatItem } from '../shared/types'
 import { ORG_ID } from './screensOrganization'
 import { LUMEN_CLI_REPO, LUMEN_ID, LUMEN_SITE_REPO } from './demoLumen'
+import type { AgentKind } from '../shared/agents'
+import { costIsRunningTotal } from '../shared/usage'
 
 let bound: { core: Core; store: Store } | null = null
 
 /** Once the core is up (main/index.ts): the scripted runs call its employee tools. */
 export function bindDemoEmployees(core: Core, store: Store): void {
   bound = { core, store }
+}
+
+/**
+ * What a scripted demo turn reports as its cost. For an agent that reports its conversation's running total (Claude), the
+ * chat's last reported total plus this turn's share, as the real one does, so the demo's chats count each turn's own
+ * (shared/usage.ts, turnCosts). Without the demo's store (a test), or a chat to read, the share alone.
+ */
+export async function demoCost(kind: AgentKind, turnId: string, own: number): Promise<number> {
+  const session = costIsRunningTotal(kind) ? bound?.store.state.sessions.find((s) => s.turnId === turnId) : undefined
+  if (!bound || !session) return own
+  const items = await bound.store.readChat(session.id).catch(() => [] as ChatItem[])
+  const before = items.findLast((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result' && i.turnId !== turnId && i.costUsd !== undefined)?.costUsd ?? 0
+  return Math.round((before + own) * 100) / 100
 }
 
 /** An AI employee's run: its turn is this script, never the replayed recordings a person's chat gets. */
@@ -387,7 +402,7 @@ const sleep = (ms: number, signal: AbortSignal) =>
 export class EmployeeDemoTurn implements AgentTurn {
   private stopper = new AbortController()
 
-  constructor(private request: TurnRequest, private cb: TurnCallbacks) {}
+  constructor(private kind: AgentKind, private request: TurnRequest, private cb: TurnCallbacks) {}
 
   private async say(id: string, said: string): Promise<void> {
     const { turnId } = this.request
@@ -447,7 +462,7 @@ export class EmployeeDemoTurn implements AgentTurn {
       this.cb.item({ ...tool, status: result.isError ? 'error' : 'done', output: result.text })
     }
     if (signal.aborted) return this.cb.finished({ ok: false, error: 'Stopped.' })
-    this.cb.item({ kind: 'result', id: `result:${turnId}`, turnId, ok: true, costUsd: Math.round(beats.length * 3.1) / 100, durationMs: Date.now() - started, turns: beats.length })
+    this.cb.item({ kind: 'result', id: `result:${turnId}`, turnId, ok: true, costUsd: await demoCost(this.kind, turnId, Math.round(beats.length * 3.1) / 100), durationMs: Date.now() - started, turns: beats.length })
     this.cb.finished({ ok: true })
   }
 

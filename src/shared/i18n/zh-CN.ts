@@ -5977,6 +5977,9 @@ export const zhCN: Catalogue = {
   // Flows (docs/loops-and-graphs.md): the Experimental switch, the Automations list and editor, and the problems a flow file can have.
   'settings.experimental.flows.label': '流程',
   'settings.experimental.flows.help': '带循环的智能体步骤图，从“自动化”运行。关闭时，不显示任何与流程相关的内容。',
+  'settings.experimental.pastChats.label': '搜索以前的聊天',
+  'settings.experimental.pastChats.help': '智能体可以搜索此仓库以前的聊天，并阅读找到的某一轮。关闭时无法使用。',
+  'settings.experimental.pastChats.detail': '从它们的下一轮开始，适用于这台电脑上的智能体，不包括云端工作区。旧聊天也保留了其中的错误，因此会提醒智能体对照代码核实找到的内容。',
   'settings.experimental.replay.label': '回放录制的流量',
   'settings.experimental.replay.help': '仅限开发版本。Claude Code 和 Codex 不会运行，而是根据真实代理的录制内容作答：消息中的一个词（approval、question、plan、limit 或 crash）会选择录制内容，否则播放普通回答。不会向任何代理发送内容。',
   'replay.notice': '正在回放录制内容：没有代理在运行。',

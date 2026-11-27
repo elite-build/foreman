@@ -265,6 +265,9 @@ export function codexSettings(req: TurnRequest, binary?: CodexBinary): CodexSett
     model: req.model || undefined,
     cwd: req.cwd,
     approvalPolicy,
+    // Every request Codex asks about comes to Foreman: to the person at Ask, to Foreman's own check for scoped writes. Said
+    // outright, so an `approvals_reviewer` in the user's ~/.codex/config.toml (Codex's auto_review subagent) can't answer them.
+    approvalsReviewer: CODEX_REVIEWER,
     sandbox,
     // Developer instructions sit beside Codex's own prompt, like Claude's append.
     developerInstructions: req.systemPromptAppend.trim() || undefined,
@@ -275,6 +278,9 @@ export function codexSettings(req: TurnRequest, binary?: CodexBinary): CodexSett
   }
   return { env, config, approvalPolicy, sandbox, sandboxPolicy, thread }
 }
+
+/** Who answers what Codex asks: always Foreman (the person, or Foreman's own scoped-write check), never Codex's reviewer subagent. */
+const CODEX_REVIEWER = 'user' as const
 
 /** The path is the root or below it (case-folded on Windows-style paths). */
 function insideRoot(file: string, root: string): boolean {
@@ -1140,6 +1146,7 @@ export class CodexTurn implements AgentTurn {
         model: this.model || undefined,
         effort: this.req.effort ? EFFORTS[this.req.effort] : undefined,
         approvalPolicy,
+        approvalsReviewer: CODEX_REVIEWER,
         sandboxPolicy,
         // Experimental field: sent only for plan mode, or to leave it; other turns run exactly as without it.
         ...(mode ? { collaborationMode: { mode, settings: { model, reasoning_effort: effort, developer_instructions: null } } } : {})

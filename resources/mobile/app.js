@@ -675,7 +675,7 @@ function backToList() {
   Object.assign(state, { view: 'list', wsId: null, sessionId: null, sheet: null, error: '' })
   render()
 }
-// A link to the full app (/app?pair=…) comes here to pair, as a browser, and goes back once approved. Only /app.
+// A browser's link (/?then=/app#pair=…) pairs here, as a browser, and goes on to the full app once approved. Only /app.
 function pairThen() {
   return new URLSearchParams(location.search).get('then') === '/app' ? '/app' : null
 }
@@ -1121,7 +1121,8 @@ root.addEventListener('click', async (event) => {
 window.addEventListener('popstate', () => { if (state.view === 'thread') backToList() })
 
 ;(async () => {
-  const secret = new URLSearchParams(location.search).get('pair')
+  // The one-time secret is in the fragment (#pair=…), which the browser never sends to the server.
+  const secret = new URLSearchParams(location.hash.slice(1)).get('pair')
   if (secret) await startPairing(secret)
   else if (state.pairingId) { render(); pollPair() }
   else { await signedIn(); render() }

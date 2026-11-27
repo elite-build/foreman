@@ -69,6 +69,7 @@ At the start of a turn, search `foreman.db` for messages relevant to the new tas
 
 - **For:** no curation; uses the index that already exists; recall is broad.
 - **Against:** transcripts record mistakes as faithfully as fixes, so recall surfaces wrong turns too. Relevance by full-text match is noisy; embeddings would be a new dependency and a privacy question. Injected hits are large and unreceipted unless summarised, and summarising needs a model call that privacy mode forbids. As a tool the agent calls on demand it is safer, but it is still episodic, not learned.
+- **Built as an experiment (the tool half, 2026-11-26):** `search_past_chats` and `read_past_turn` on the `foreman-app` server, behind Settings → Experimental → Past chat search, off by default (`docs/agents.md`, 5.3). Nothing is injected; an agent calls them when it chooses, and each call shows in the chat like any tool call. Scope is the calling chat's repository; results are whole turns with a ref, framed as records to check against the code. Before this goes on by default it needs the memory-off control below: the same tasks with the tools on and off, compared on steps, corrections and cost, plus one run with a misleading past turn in the index. If it can't beat off, it comes out.
 
 ### E. End-of-turn extraction by a model
 

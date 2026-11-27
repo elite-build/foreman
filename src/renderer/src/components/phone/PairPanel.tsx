@@ -13,12 +13,12 @@ type Mode = 'lan' | 'private'
 type Client = 'phone' | 'browser'
 
 /**
- * The link a browser opens: the same one-time secret at /app, which the server sends through the phone page's pairing
- * as a browser and then on to the full app (docs/server.md, "A browser").
+ * The link a browser opens: the same one-time secret (in the fragment, never sent to the server), on the phone page told
+ * to pair as a browser and then go on to the full app at /app (docs/server.md, "A browser").
  */
 export function browserLink(pairingUrl: string): string {
   const url = new URL(pairingUrl)
-  url.pathname = '/app'
+  url.search = '?then=/app'
   return url.toString()
 }
 

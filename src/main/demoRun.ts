@@ -21,7 +21,7 @@ import { registerDriver } from './agents/registry'
 import type { AgentDriver, AgentTurn, TurnCallbacks, TurnRequest } from './agents/types'
 import { commandHash } from './checks'
 import type { Core } from './core'
-import { EmployeeDemoTurn, isEmployeeTurn } from './demoEmployees'
+import { demoCost, EmployeeDemoTurn, isEmployeeTurn } from './demoEmployees'
 import { git } from './git'
 import { mainT } from './i18n'
 import type { Store } from './store'
@@ -253,7 +253,7 @@ class BackgroundDemo {
   private agent: Extract<ChatItem, { kind: 'tool' }>
   private agentStopped = false
 
-  constructor(private request: TurnRequest, private cb: TurnCallbacks, private signal: AbortSignal) {
+  constructor(private kind: AgentKind, private request: TurnRequest, private cb: TurnCallbacks, private signal: AbortSignal) {
     const { turnId } = request
     const startedAt = new Date().toISOString()
     this.shell = {
@@ -277,7 +277,7 @@ class BackgroundDemo {
     this.cb.item({ ...this.shell })
     this.cb.item({ ...this.agent })
     await say(`${turnId}:bg-1`, 'Both are running. I will add to this answer when they report back.')
-    this.cb.item({ kind: 'result', id: `result:${turnId}`, turnId, ok: true, costUsd: 0.31, durationMs: Date.now() - started, turns: 3 })
+    this.cb.item({ kind: 'result', id: `result:${turnId}`, turnId, ok: true, costUsd: await demoCost(this.kind, turnId, 0.31), durationMs: Date.now() - started, turns: 3 })
     this.cb.item({ kind: 'notice', id: `${turnId}:notice:0`, turnId, level: 'info', text: translate(this.request.locale ?? 'en', 'chat.background.waiting', { count: 2 }) })
     for (let step = 0; !this.signal.aborted; step++) {
       await sleep(2500, this.signal)
@@ -429,7 +429,7 @@ class DemoTurn implements AgentTurn {
   private stopper = new AbortController()
   private background: BackgroundDemo | null = null
 
-  constructor(private request: TurnRequest, private cb: TurnCallbacks) {}
+  constructor(private kind: AgentKind, private request: TurnRequest, private cb: TurnCallbacks) {}
 
   /** Streamed a few words at a time, as an agent's answer arrives. */
   private async say(id: string, said: string): Promise<void> {
@@ -447,7 +447,7 @@ class DemoTurn implements AgentTurn {
 
   async run(): Promise<void> {
     if (wantsBackground(this.request)) {
-      this.background = new BackgroundDemo(this.request, this.cb, this.stopper.signal)
+      this.background = new BackgroundDemo(this.kind, this.request, this.cb, this.stopper.signal)
       return this.background.run((id, text) => this.say(id, text))
     }
     const { turnId, cwd } = this.request
@@ -482,7 +482,7 @@ class DemoTurn implements AgentTurn {
     }
     if (signal.aborted) return this.cb.finished({ ok: false, error: 'Stopped.' })
     const durationMs = Date.now() - startedAt
-    this.cb.item({ kind: 'result', id: `result:${turnId}`, turnId, ok: true, costUsd: Math.round(beats.length * 4.7) / 100, durationMs, turns: beats.length })
+    this.cb.item({ kind: 'result', id: `result:${turnId}`, turnId, ok: true, costUsd: await demoCost(this.kind, turnId, Math.round(beats.length * 4.7) / 100), durationMs, turns: beats.length })
     this.cb.usage({ used: Math.min(180_000, 24_000 + this.request.prompt.length * 3 + beats.length * 2_600), limit: 200_000 })
     this.cb.finished({ ok: true })
   }
@@ -512,7 +512,7 @@ function demoDriver(kind: AgentKind, replayed?: AgentDriver): AgentDriver {
     // write the files the checks then run); a chat of the person's goes to the real adapter over ReplayTransport, so it
     // answers as the recorded agent did (docs/agents.md, 9.5).
     createTurn: (request, callbacks) =>
-      isEmployeeTurn(request) ? new EmployeeDemoTurn(request, callbacks) : replayed && !isFlowBeat(request) ? replayed.createTurn(request, callbacks) : new DemoTurn(request, callbacks),
+      isEmployeeTurn(request) ? new EmployeeDemoTurn(kind, request, callbacks) : replayed && !isFlowBeat(request) ? replayed.createTurn(request, callbacks) : new DemoTurn(kind, request, callbacks),
     status: async () => ({ agent: kind, installed: true, ready: true, detail: replayed ? 'Demo: answers from recordings' : 'Demo: answers from a script' })
   }
 }

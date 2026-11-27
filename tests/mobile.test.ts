@@ -109,7 +109,10 @@ describe('paired mobile access', () => {
     expect((await fetch(base + '/live.js')).headers.get('content-type')).toBe('text/javascript; charset=utf-8')
 
     const pairing = await service.startPairing()
-    const token = new URL(pairing.pairing!.url).searchParams.get('pair')
+    // The secret is in the fragment, which a browser never sends, so no request line, proxy or log ever holds it.
+    expect(new URL(pairing.pairing!.url).search).toBe('')
+    const token = new URL(pairing.pairing!.url).hash.slice('#pair='.length)
+    expect(token.length).toBeGreaterThan(20)
     const start = await fetch(base + '/api/pair/start', {
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, name: 'Test phone' })
@@ -238,7 +241,7 @@ describe('paired mobile access', () => {
 
     const pairing = await service.startPairing('lan')
     expect(pairing.pairing?.mode).toBe('lan')
-    const secret = new URL(pairing.pairing!.url).searchParams.get('pair')
+    const secret = new URL(pairing.pairing!.url).hash.slice('#pair='.length)
     const started = await fetch(origin + '/api/pair/start', {
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: secret, name: 'Nearby phone' })
@@ -272,7 +275,7 @@ describe('paired mobile access', () => {
     const privateBase = `http://127.0.0.1:${privateInfo.port}`
     expect((await fetch(privateBase + '/api/state', { headers: { Cookie: auth } })).status).toBe(401)
     const privatePairing = await service.startPairing('private')
-    const privateToken = new URL(privatePairing.pairing!.url).searchParams.get('pair')
+    const privateToken = new URL(privatePairing.pairing!.url).hash.slice('#pair='.length)
     expect((await fetch(origin + '/api/pair/start', {
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: privateToken, name: 'Wrong transport' })
@@ -306,7 +309,7 @@ describe('paired mobile access', () => {
     const origin = 'https://foreman.example.ts.net'
     const base = `http://127.0.0.1:${(await service.configure(true, origin)).port}`
     const pair = async (body: Record<string, unknown>, access?: 'read' | 'operate' | 'admin') => {
-      const token = new URL((await service.startPairing()).pairing!.url).searchParams.get('pair')
+      const token = new URL((await service.startPairing()).pairing!.url).hash.slice('#pair='.length)
       const started = await fetch(base + '/api/pair/start', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ token, ...body }) })
       if (started.status !== 200) return { status: started.status, cookie: '' }
       const { id } = await started.json() as { id: string }
@@ -425,7 +428,7 @@ describe('paired mobile access', () => {
     const origin = 'https://foreman.example.ts.net'
     const base = `http://127.0.0.1:${(await service.configure(true, origin)).port}`
     const pair = async (access: 'read' | 'operate') => {
-      const token = new URL((await service.startPairing()).pairing!.url).searchParams.get('pair')
+      const token = new URL((await service.startPairing()).pairing!.url).hash.slice('#pair='.length)
       const started = await fetch(base + '/api/pair/start', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ token, name: access }) })
       const { id } = await started.json() as { id: string }
       service.approve(id, true, access)
@@ -542,7 +545,7 @@ describe('paired mobile access', () => {
     services.push(service)
     const origin = 'https://foreman.example.ts.net'
     const base = `http://127.0.0.1:${(await service.configure(true, origin)).port}`
-    const token = new URL((await service.startPairing()).pairing!.url).searchParams.get('pair')
+    const token = new URL((await service.startPairing()).pairing!.url).hash.slice('#pair='.length)
     const started = await fetch(base + '/api/pair/start', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ token, name: 'iPhone' }) })
     const { id } = await started.json() as { id: string }
     service.approve(id, true)
@@ -629,23 +632,26 @@ describe('paired mobile access', () => {
     expect(signInText).toContain('foreman phone link --browser')
     expect(signInText).not.toContain('secret-repo')
     expect(signInText).not.toContain('index-abc.js')
-    // With a pairing link: the phone page pairs it, as a browser, and comes back to /app.
-    const toPair = await get('/app?pair=abc_123')
-    expect(toPair.status).toBe(302)
-    expect(toPair.headers.get('location')).toBe('/?pair=abc_123&then=/app')
-    // The pairing page goes on to /app only. (Its script has no build step to catch a slip, so it is parsed here.)
-    expect(() => new vm.Script(readFileSync(path.join(process.cwd(), 'resources/mobile/app.js'), 'utf8'))).not.toThrow()
-    expect((await get('/?pair=abc&then=/app')).status).toBe(200)
+    // The pairing secret is never read from the query: a link that puts it there gets the sign-in page, not a pairing.
+    const queried = await get('/app?pair=abc_123')
+    expect(queried.status).toBe(200)
+    expect(await queried.text()).toContain('foreman phone link --browser')
+    // A browser's link is the phone page with the secret in the fragment; it pairs, then goes on to /app and only there.
+    // (Its script has no build step to catch a slip, so it is parsed here.)
+    const script = readFileSync(path.join(process.cwd(), 'resources/mobile/app.js'), 'utf8')
+    expect(() => new vm.Script(script)).not.toThrow()
+    expect(script).not.toMatch(/location\.search\)\.get\('pair'\)/)
+    expect((await get('/?then=/app')).status).toBe(200)
     for (const evil of ['/evil', '//evil.example', 'https://evil.example/app']) {
-      const res = await get(`/?pair=abc&then=${encodeURIComponent(evil)}`)
+      const res = await get(`/?then=${encodeURIComponent(evil)}`)
       expect(res.status).toBe(302)
-      expect(res.headers.get('location')).toBe('/?pair=abc')
+      expect(res.headers.get('location')).toBe('/')
     }
     expect((await get('/assets/index-abc.js')).status).toBe(401)
     expect((await get('/app/anything')).status).toBe(404)
 
     // Signed in as a browser.
-    const token = new URL((await service.startPairing()).pairing!.url).searchParams.get('pair')
+    const token = new URL((await service.startPairing()).pairing!.url).hash.slice('#pair='.length)
     const started = await fetch(base + '/api/pair/start', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ token, name: 'Chrome on Mac', kind: 'browser' }) })
     const { id } = await started.json() as { id: string }
     expect(service.info().pending?.kind).toBe('browser')

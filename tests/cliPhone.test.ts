@@ -43,7 +43,7 @@ function mobile(start: { info?: Partial<MobileInfo>; lan?: Partial<MobileInfo['l
     mobileStartPairing: async (mode = 'private') => {
       calls.push(['mobileStartPairing', mode])
       const origin = mode === 'private' ? info.url : `http://${info.lan.address}:${info.lan.port}`
-      info.pairing = { mode, url: `${origin}/?pair=SECRET`, qr: 'data:image/png;base64,x', expiresAt: Date.now() + 120_000 }
+      info.pairing = { mode, url: `${origin}/#pair=SECRET`, qr: 'data:image/png;base64,x', expiresAt: Date.now() + 120_000 }
       return copy()
     },
     mobileApprovePairing: async (id, allow, access: MobileAccess = 'operate') => {
@@ -128,10 +128,10 @@ describe('the phone methods', () => {
       ['mobileConfigureLan', true, '192.168.1.20'],
       ['mobileStartPairing', 'lan']
     ])
-    expect(result).toMatchObject({ mode: 'lan', kind: 'phone', url: 'http://192.168.1.20:47633/?pair=SECRET', turnedOn: 'lan' })
+    expect(result).toMatchObject({ mode: 'lan', kind: 'phone', url: 'http://192.168.1.20:47633/#pair=SECRET', turnedOn: 'lan' })
     expect(result.qr).toBeUndefined()
     expect(result.text).toContain('Turned on same-Wi-Fi access on 192.168.1.20 (Wi-Fi).')
-    expect(result.text).toContain('Open this link on the phone within 2 minutes; it works once:\nhttp://192.168.1.20:47633/?pair=SECRET')
+    expect(result.text).toContain('Open this link on the phone within 2 minutes; it works once:\nhttp://192.168.1.20:47633/#pair=SECRET')
     expect(result.text).toContain('`foreman phone approve <code>`')
   })
 
@@ -153,7 +153,7 @@ describe('the phone methods', () => {
       ['mobileConfigure', true, 'https://mac.tail.ts.net'],
       ['mobileStartPairing', 'private']
     ])
-    expect(result).toMatchObject({ mode: 'private', url: 'https://mac.tail.ts.net/?pair=SECRET', turnedOn: 'private' })
+    expect(result).toMatchObject({ mode: 'private', url: 'https://mac.tail.ts.net/#pair=SECRET', turnedOn: 'private' })
   })
 
   it('link --private with no address is refused with how to set one, and nothing is turned on', async () => {
@@ -171,12 +171,12 @@ describe('the phone methods', () => {
     expect(err.hint).toContain('--private')
   })
 
-  it('link --browser opens the full app at /app with the same one-time secret', async () => {
+  it('link --browser pairs as a browser and then opens the full app, with the same one-time secret', async () => {
     const lan = await mobile({ lan: { enabled: true, address: '192.168.1.20' } }).call<PhoneLinkResult>('phone-link', { mode: 'lan', kind: 'browser' })
-    expect(lan.url).toBe('http://192.168.1.20:47633/app?pair=SECRET')
+    expect(lan.url).toBe('http://192.168.1.20:47633/?then=/app#pair=SECRET')
     expect(lan.text).toContain('Open this link in the browser')
     const priv = await mobile({ info: { enabled: true, url: 'https://mac.tail.ts.net' } }).call<PhoneLinkResult>('phone-link', { kind: 'browser' })
-    expect(priv.url).toBe('https://mac.tail.ts.net/app?pair=SECRET')
+    expect(priv.url).toBe('https://mac.tail.ts.net/?then=/app#pair=SECRET')
   })
 
   it('link --qr draws the link as text', async () => {

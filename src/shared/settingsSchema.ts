@@ -268,6 +268,7 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   flag('fork-to-new-tab', 'fork-to-new-tab', 'forkToNewTab'),
   flag('show-resource-usage', 'show-resource-usage', 'showResourceUsage'),
   flag('flows', 'flows', 'flows'),
+  flag('past-chat-search', 'past-chat-search', 'pastChatSearch'),
   flag('diagnostics', 'diagnostics', 'diagnostics'),
 
   // Advanced (the Workspaces folder and the Windows script shell live here, not under Git)

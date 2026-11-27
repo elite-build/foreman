@@ -162,6 +162,7 @@ import { AGENT_TOOL_SERVICES, cleanWorkspaceIntegrations, toolsOn, type Workspac
 import { IntegrationBridge } from './integrationBridge'
 import { ForemanActions } from './foremanActions'
 import { ForemanMcp } from './foremanMcp'
+import { readPastTurn, searchPastChats } from './pastChats'
 import { BrowserLink } from './browserLink'
 import { browserFor, DEFAULT_BLOCKED_SITES, isBlockedUrl, type BrowserMethod, type BrowserParams, type BrowserSnapshot, type BrowserTab, type BrowserToolName } from '../shared/browserLink'
 import { SlackRules } from './slackRules'
@@ -803,6 +804,11 @@ export class Core {
       socket: () => host.cliSocket?.() ?? null,
       flowsOn: () => Boolean(store.state.settings.flows),
       chatHistory: (sessionId, args) => this.sessions.readChatHistory(sessionId, args),
+      pastChats: {
+        on: () => Boolean(store.state.settings.pastChatSearch),
+        search: (sessionId, args) => searchPastChats(store, sessionId, args),
+        read: (sessionId, args) => readPastTurn(store, sessionId, args)
+      },
       browser: {
         enabled: () => Boolean(store.state.settings.browserControl),
         call: (workspaceId, tool, args) => this.browserTool(workspaceId, tool, args)

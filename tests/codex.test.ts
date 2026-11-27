@@ -447,6 +447,7 @@ describe('codex thread settings', () => {
       model: 'gpt-6.1-sol',
       cwd: CWD,
       approvalPolicy: 'never',
+      approvalsReviewer: 'user',
       sandbox: 'danger-full-access',
       developerInstructions: 'Workspace notes',
       serviceTier: 'priority',
@@ -528,6 +529,16 @@ describe('codex thread settings', () => {
     expect(resumed.sent('thread/resume')[0]).toMatchObject({ threadId: 'old-thread', approvalPolicy: 'on-request', sandbox: 'workspace-write' })
     expect(resumed.sent('turn/start')[0].threadId).toBe('old-thread')
     expect(r.calls[0]).toBe('session:old-thread')
+  })
+
+  it('sends every request Codex asks about to Foreman, never to a reviewer set in the user’s Codex config', async () => {
+    for (const patch of [{ approvals: 'ask' }, { approvals: 'never-ask', writeScope: ['docs/**'] }, { approvals: 'ask', resume: 'old-thread' }] as Partial<TurnRequest>[]) {
+      const server = new FakeServer()
+      await runTurn(request(patch), recorder().cb, server)
+      const opened = server.sent(patch.resume ? 'thread/resume' : 'thread/start')[0]
+      expect(opened.approvalsReviewer).toBe('user')
+      expect(server.sent('turn/start')[0].approvalsReviewer).toBe('user')
+    }
   })
 
   it('keeps a read-only chat in the read-only sandbox on every turn', async () => {

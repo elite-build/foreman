@@ -112,6 +112,7 @@ import { readOnlyEnforcement } from '../shared/permissions'
 import type { Persona } from '../shared/personas'
 import type { ProjectTaskMark } from '../shared/projects'
 import type { ChatItem, EmployeeTurnMark, Loadout, MessageOrigin, Repo, Session, TurnOutcome, WorkspaceStartedBy } from '../shared/types'
+import { turnCosts } from '../shared/usage'
 import type { ForemanDb } from './db'
 import type { EmployeeService } from './employees'
 import type { MemoryService } from './memory'
@@ -1144,9 +1145,11 @@ export class EmployeeWorkService {
     const end = ofTurn.find((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end')
     const now = this.db.employeeRun(run.id)
     if (!now || !isRunGoing(now.state)) return
-    // What the turn cost, where the agent said (Claude Code does): the cost threshold adds it up (§9).
+    // What the turn cost on its own, where the agent said (Claude Code reports a running total for the chat, so its share is
+    // what it added): the cost threshold adds it up (§9).
     const results = ofTurn.filter((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result')
-    const cost = results[0]?.costUsd
+    const tab = this.host.session(sessionId)
+    const cost = turn && tab ? turnCosts(items, tab.agent).get(turn) : undefined
     if (typeof cost === 'number' && Number.isFinite(cost)) this.saveRun(now, { usage: { ...now.usage, costUsd: (now.usage?.costUsd ?? 0) + cost } })
     // §9: the calls refused in the turn (a hook's deny, Foreman's own or the repository's, or the permission check's) go
     // on the run's record, the first twenty by name and all of them counted; a turn a message was steered into has a

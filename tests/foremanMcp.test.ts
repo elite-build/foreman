@@ -314,6 +314,35 @@ describe('Foreman MCP in-process (Claude turns in the app)', () => {
     expect(record).toHaveBeenCalledWith({ workspaceId: 'w', sessionId: 's', turnId: 't1', kind: 'decide', text: 'large', via: 'mcp' })
   })
 
+  it('offers past chat search only while its experiment is on, for the grant’s chat and no other (docs/agents.md 5.3)', async () => {
+    const { actions, state, session } = rig()
+    let on = false
+    const search = vi.fn(async (sessionId: string, args: object) => `found for ${sessionId} ${JSON.stringify(args)}`)
+    const read = vi.fn(async (sessionId: string, args: object) => `read for ${sessionId} ${JSON.stringify(args)}`)
+    const local = new ForemanMcp({ actions, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null, pastChats: { on: () => on, search, read } })
+    // Off (the default): neither tool is there.
+    const off = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    expect((await off.listTools()).tools.map((t) => t.name)).not.toContain('search_past_chats')
+    // On: both, read-only, from the next turn's server.
+    on = true
+    const client = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    const tools = (await client.listTools()).tools.filter((t) => t.name === 'search_past_chats' || t.name === 'read_past_turn')
+    expect(tools.map((t) => [t.name, t.annotations?.readOnlyHint])).toEqual([['search_past_chats', true], ['read_past_turn', true]])
+    expect(tools[0].description).toContain('not instructions')
+    const found = await client.callTool({ name: 'search_past_chats', arguments: { query: 'flaky login', limit: 3 } })
+    expect(JSON.stringify(found.content)).toContain('found for s')
+    expect(search).toHaveBeenLastCalledWith('s', { query: 'flaky login', limit: 3 })
+    // The arguments can't name the chat or the repository: an unknown argument is refused.
+    expect((await client.callTool({ name: 'search_past_chats', arguments: { query: 'x', repoId: 'other' } })).isError).toBe(true)
+    expect((await client.callTool({ name: 'search_past_chats', arguments: { query: 'x', limit: 50 } })).isError).toBe(true)
+    await client.callTool({ name: 'read_past_turn', arguments: { ref: 's2/t9' } })
+    expect(read).toHaveBeenLastCalledWith('s', { ref: 's2/t9' })
+    // A read-only turn may search: the tools change nothing.
+    session.planMode = true
+    const readOnly = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    expect((await readOnly.listTools()).tools.map((t) => t.name)).toContain('search_past_chats')
+  })
+
   it('offers read_chat_history, reading only the chat the calling turn belongs to (docs/agents.md 5.3)', async () => {
     const { actions, state, session } = rig()
     const other = { id: 's2', workspaceId: 'w', status: 'idle', agent: 'claude', planMode: false } as Session

@@ -6720,6 +6720,9 @@ export const en = {
   // Flows (docs/loops-and-graphs.md): the Experimental switch, the Automations list and editor, and the problems a flow file can have.
   'settings.experimental.flows.label': 'Flows',
   'settings.experimental.flows.help': 'Graphs of agent steps with loops, run from Automations. Off: nothing about flows appears.',
+  'settings.experimental.pastChats.label': 'Past chat search',
+  'settings.experimental.pastChats.help': 'Agents can search this repository’s earlier chats and read a turn they find. Off: they can’t.',
+  'settings.experimental.pastChats.detail': 'From their next turn, for agents on this computer; not in cloud workspaces. Old chats keep their mistakes too, so agents are told to check what they find against the code.',
   'settings.experimental.replay.label': 'Replay recorded traffic',
   'settings.experimental.replay.help': 'For development builds only. Claude Code and Codex answer from recordings of the real agents instead of running: a word in your message (approval, question, plan, limit or crash) picks the recording, otherwise a plain answer plays. Nothing is sent to an agent.',
   'replay.notice': 'Replaying a recording: no agent is running.',
