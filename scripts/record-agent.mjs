@@ -6,7 +6,7 @@
 //
 //   agents:     claude, codex, opencode   (the others are recorded from protocol fakes by `npm run record:agent -- simulated`)
 //   `simulated` rewrites the simulated fixtures from the fakes; `resanitize` runs every fixture through the sanitiser again, in place.
-//   scenarios:  (sandbox: Codex on Windows, the start-up that reads the sandbox's readiness; scoped: Codex held to a persona's writes) plain approval question plan steer interrupt crash resume, fork revert compact goal goalclear (Codex, and compact for Claude), subagents (Claude),
+//   scenarios:  (sandbox: Codex on Windows, the start-up that reads the sandbox's readiness; scoped: Codex held to a persona's writes) plain approval question plan steer interrupt crash resume, steertool (Claude), fork revert compact goal goalclear (Codex, and compact for Claude), subagents (Claude),
 //               and limit (made from plain, no agent is run)
 //
 // It is a script that needs the TypeScript drivers, so it runs them under vitest (vitest.record.config.ts), the one
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const [agent, scenario] = process.argv.slice(2)
 const AGENTS = ['claude', 'codex', 'opencode', 'simulated', 'resanitize']
-const SCENARIOS = ['plain', 'approval', 'question', 'plan', 'steer', 'interrupt', 'limit', 'crash', 'resume', 'fork', 'revert', 'compact', 'goal', 'goalclear', 'subagents', 'terminal', 'sandbox', 'scoped']
+const SCENARIOS = ['plain', 'approval', 'question', 'plan', 'steer', 'steertool', 'interrupt', 'limit', 'crash', 'resume', 'fork', 'revert', 'compact', 'goal', 'goalclear', 'subagents', 'terminal', 'sandbox', 'scoped']
 
 if (!AGENTS.includes(agent ?? '') || (!['simulated', 'resanitize'].includes(agent) && !SCENARIOS.includes(scenario ?? ''))) {
   console.error(`usage: npm run record:agent -- <${AGENTS.join('|')}> <${SCENARIOS.join('|')}>`)

@@ -263,6 +263,56 @@ describe('Claude turns with background work', () => {
     expect(claude.state.prompts.map((p) => p.message.content)).toEqual(['hello', 'also check the tests', 'and the docs'])
   })
 
+  // A follow-up sent during a tool call aborts the call and ends the request with success and nothing queued (as in
+  // fixtures/steertool.jsonl); Claude Code then answers it. Taking that result as the end closed Claude mid-call.
+  const toolCut = { ...result, result: '', stop_reason: 'tool_use', terminal_reason: 'aborted_tools', queued_turn_count: 0 } as Partial<SDKMessage>
+
+  it('keeps the turn going when a follow-up cuts off a tool call and the request reports success', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn(request, cb)
+    const run = turn.run()
+    claude.push(assistant('running a command'))
+    await settle()
+    expect(turn.steer('go ahead')).toBe(true)
+    claude.push(toolCut)
+    await settle()
+    expect(cb.finished).not.toHaveBeenCalled()
+    expect(claude.state.inputClosed).toBe(false)
+    expect(cb.item).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'result' }))
+
+    claude.push(assistant('done'), { ...result, queued_turn_count: 0 } as Partial<SDKMessage>)
+    await run
+    expect(cb.finished).toHaveBeenCalledTimes(1)
+    expect(cb.finished).toHaveBeenCalledWith({ ok: true })
+    expect(cb.item).toHaveBeenCalledWith(expect.objectContaining({ kind: 'result', ok: true }))
+  })
+
+  it('keeps the turn going while the result still counts queued follow-ups', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn(request, cb)
+    const run = turn.run()
+    claude.push(assistant('working'))
+    await settle()
+    turn.steer('one')
+    claude.push({ ...result, queued_turn_count: 1 } as Partial<SDKMessage>)
+    await settle()
+    expect(cb.finished).not.toHaveBeenCalled()
+    claude.push(assistant('done'), result)
+    await run
+    expect(cb.finished).toHaveBeenCalledTimes(1)
+  })
+
+  it('ends the turn on a tool call cut off with no follow-up waiting (Stop)', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn(request, cb).run()
+    claude.push(toolCut)
+    await run
+    expect(cb.finished).toHaveBeenCalledTimes(1)
+  })
+
   it('reports the same error when no follow-up was steered in', async () => {
     const claude = fakeClaude()
     const cb = callbacks()
