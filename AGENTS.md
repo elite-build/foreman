@@ -98,7 +98,7 @@ There is no mandatory repository `.env` file for building or running the ordinar
 
 On Windows PowerShell, use `npm.cmd` if execution policy blocks `npm.ps1`; changing machine execution policy is unnecessary. The checks are at the end of this file; [docs/map.md](docs/map.md#commands) has every script with its options. The ones a change most often needs besides them:
 
-- `npm test -- tests/<name>.test.ts` runs one test file. `npm run test:changed` runs only the tests the branch's changes can affect: it is for the loop while working, and `npm test` is still the check before a pull request.
+- `npm test -- tests/<name>.test.ts` runs one test file. `npm run test:changed` runs the tests the branch's changes can affect, for the loop while working; `npm run test:changed -- --own` runs only the test files the branch adds or changes (plus `check:ui` for a renderer or i18n change), the check before a pull request. Run the whole `npm test` locally only when the user asks: CI runs it, split four ways, on every ready PR, and nothing merges or is released without it passing.
 - `npm run check:ui` runs the design-system guard and the contrast, i18n, UI and content accessibility checks.
 - `npm run dev` runs the app; `npm run dev demo` runs it on demo data, with no network and no external services.
 - `npm run pr:screens` takes before-and-after fixture screens for a UI pull request (`.claude/skills/create-pr/ui-changes.md`).
@@ -118,7 +118,7 @@ Add regression coverage for changed behaviour, including error paths and cleanup
 
 ### CI and automation
 
-`.github/workflows/ci.yml` runs on a pull request into `main` once it is ready for review, never on a draft. Its two jobs, **Types and design system** (`typecheck`, `check:ui` and the new-component check) and **Tests and build** (`npm test` and `npm run build`), are required by a ruleset nobody can bypass, so a PR that fails either can't be merged. Run the checks in this file locally before marking a PR ready, and open it as a draft while one fails. `docs/maintenance.md` has the rest: the nightly run, the installer and release workflows, the rulesets and the live-protection boundary.
+`.github/workflows/ci.yml` runs on a pull request into `main` once it is ready for review, never on a draft. Its two checks, **Types and design system** (`typecheck`, `check:ui` and the new-component check) and **Tests and build** (the whole suite in four parts at once, and `npm run build`), are required by a ruleset nobody can bypass, so a PR that fails either can't be merged. Run the checks below locally before marking a PR ready, and open it as a draft while one fails; a failure only CI finds is fixed in the next push. `docs/maintenance.md` has the rest: the nightly run, the installer and release workflows, the rulesets and the live-protection boundary.
 
 - `.githooks/pre-push` (`scripts/check-push.mjs`) refuses a push whose commit holds a design mock (`mocks/`, `mockups/`, `mock*.html`) or any other path `scripts/publication-paths.mjs` forbids: a branch may carry mocks while it's worked on, but take them out (`git rm -r --cached`) before raising its PR, so none reaches `main`.
 - `main` takes a PR with one approval; admins may bypass that only when merging a PR. Do not merge or use that bypass unless the user asks.
@@ -130,4 +130,4 @@ Keep this file as the agent entry point, holding rules and pointers: a table of 
 
 ## Checks
 
-`npm run typecheck`, `npm test` and `npm run build` must pass. `npm run screens` captures every main screen of the real app on a fixture (`-- --compare <a> <b>` diffs two runs); use it when a change could move layout.
+`npm run typecheck`, `npm run build` and `npm run test:changed -- --own` must pass locally; CI runs the whole `npm test` on the PR, and it must pass there. `npm run screens` captures every main screen of the real app on a fixture (`-- --compare <a> <b>` diffs two runs); use it when a change could move layout.

@@ -29,7 +29,9 @@ Done when you can say in two sentences what the branch changes and why.
 
 ## 2. Run the checks
 
-Always: `npm run typecheck`, `npm test`, `npm run build`, `npm run check:repository`.
+Always: `npm run typecheck`, `npm run build`, `npm run test:changed -- --own` (the test files the branch adds or changes, plus `check:ui` for a renderer or i18n change), `npm run check:repository`.
+
+Don't run the whole `npm test` unless the user asks for it: CI runs it on the PR, in four parts at once, and that run is what the ruleset requires (step 7).
 
 Add the ones the diff calls for (AGENTS.md, "Development, checks and packaging", is the source of truth; `docs/map.md` describes each command):
 
@@ -73,7 +75,7 @@ When the diff changes what the app draws (anything under `src/renderer/` beyond 
 - **Lead**: one to three sentences before the first heading. Someone who reads only that knows what changed and whether it was verified.
 - **What changed**: the files a reviewer should open first, each with what it does now, and why this way when there was a real alternative. Not every file.
 - **UI**: what [ui-changes.md](ui-changes.md) produced.
-- **Verification**: each command from step 2 with its result (`npm test`: N files, N tests, pass). Mark proof by kind where it isn't obvious: a test with a fake process is not a run with the real agent, and a fixture screenshot is not a manual check. "Not verified: …, because …" is a fine line to write.
+- **Verification**: each command from step 2 with its result (`npm run test:changed -- --own`: N files, N tests, pass), and that CI runs the whole suite. Mark proof by kind where it isn't obvious: a test with a fake process is not a run with the real agent, and a fixture screenshot is not a manual check. "Not verified: …, because …" is a fine line to write.
 - **Compatibility**: only for the one-way changes from step 3. What an existing install sees when it updates, and what a user has to do. If a user has to do something, the release note gets a `Before you update` line too.
 - **Release note**: one line per effect a user notices, each starting with its section. The sections are the changelog's, in the order a reader needs them:
   - `Before you update`: something the user has to know or do before or right after updating. For example, a habit that stops working, a setting that resets, data that can't go back to the earlier version, or a platform that's no longer supported.
@@ -104,4 +106,6 @@ gh pr view --json url,title,body,isDraft,files
 
 Check that the title and body are what you wrote, that no `<…>` placeholder, template comment (`<!-- … -->`) or empty heading is left, that the Release note section is there, that the file list holds nothing unexpected, and that every image link loads (`curl -sIL <url>` ends in `200`). Fix with `gh pr edit` and check again.
 
-Report the PR's URL, the checks and their results, anything not verified, and any decision or docs entry you added. Do not merge it, approve it, or ask for the ruleset bypass.
+A ready PR starts CI, which runs the whole suite. Start `gh pr checks <number> --watch --fail-fast` in the background rather than waiting on it; when a check fails, read its log (`gh run view <run> --log-failed`), fix the cause, push, and say so in the report. A test that fails only under load is rerun on its own before it counts.
+
+Report the PR's URL, the checks and their results (CI's too, if it has finished), anything not verified, and any decision or docs entry you added. Do not merge it, approve it, or ask for the ruleset bypass.
