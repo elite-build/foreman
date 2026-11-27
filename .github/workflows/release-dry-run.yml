@@ -1,0 +1,88 @@
+name: Release dry run
+
+# The release build end to end, without keys and without publishing: both installers through the Installers workflow
+# (unsigned; macOS ad-hoc signed), each packaged app started once (scripts/smoke-packaged.mjs), then the release files
+# checked, named and summed exactly as the Release workflow's draft job does, and nothing created. It runs on a pull
+# request into main that changes how Foreman is packaged or released, every week on main, and by hand. It is not a
+# required check, and like CI it skips a draft pull request.
+#
+# No job here gets a secret, an environment or a write token: Installers' signing jobs are skipped without their
+# inputs, and the `release` environment admits only main and v* tags anyway.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      # package.json holds electron-builder's configuration (`build`) and the dist scripts.
+      - package.json
+      - build/**
+      - resources/cli/**
+      - .signpath/**
+      - scripts/release.mjs
+      - scripts/smoke-packaged.mjs
+      - scripts/third-party-notices.mjs
+      - scripts/postinstall.mjs
+      - scripts/verify-mac-release.sh
+      - scripts/verify-windows-release.ps1
+      - scripts/windows-update-feed.mjs
+      - .github/workflows/installers.yml
+      - .github/workflows/release.yml
+      - .github/workflows/release-dry-run.yml
+  schedule:
+    # Mondays, 03:30 in India (UTC+05:30), half an hour after Nightly starts.
+    - cron: '0 22 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-dry-run-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  installers:
+    name: Installers
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/installers.yml
+    # Installers' Windows job asks for actions: read (SignPath's connector needs it when signing).
+    permissions:
+      contents: read
+      actions: read
+    with:
+      sign-macos: false
+      sign-windows: false
+
+  assets:
+    name: Release files
+    needs: installers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: Foreman-*
+          path: assets
+          merge-multiple: true
+      # The checks of release.yml's "Check and name the release files", without the one that asks GitHub for an
+      # existing release of the tag; change both together.
+      - name: Check and name the release files
+        run: |
+          cd assets
+          shopt -s nullglob
+          dmg=(*.dmg) exe=(*.exe) zip=(*.zip)
+          [ ${#dmg[@]} -eq 1 ] && [ ${#exe[@]} -eq 1 ] || { echo "::error::Expected one DMG and one Windows installer."; ls -la; exit 1; }
+          [ ${#zip[@]} -eq 1 ] && [ -f latest.yml ] && [ -f latest-mac.yml ] || { echo "::error::Expected the macOS zip, latest.yml and latest-mac.yml."; ls -la; exit 1; }
+          for f in *' '*; do mv -- "$f" "${f// /.}"; done
+          sha256sum -- * > SHA256SUMS.txt
+          {
+            echo "A release from this commit would carry these files (nothing was published):"
+            echo
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

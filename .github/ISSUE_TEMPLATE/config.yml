@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/elite-build/foreman/security/advisories/new
+    about: Report it privately, never in a public issue. SECURITY.md says what to include and what happens next.
+  - name: Security policy
+    url: https://github.com/elite-build/foreman/blob/main/SECURITY.md
+    about: Supported versions, how to report a vulnerability, and safe harbour for good-faith research.
+  - name: Questions and how-to
+    url: https://github.com/elite-build/foreman/blob/main/docs/guide.md
+    about: The guide covers repository settings, agents, integrations, the command line, flows and phone access.

@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in Foreman doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **A security problem goes to [Report a vulnerability](https://github.com/elite-build/foreman/security/advisories/new), not here** (see SECURITY.md).
+        This issue is public: leave out tokens, API keys, private repository content and personal data, and use made-up examples.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest way to make it happen again, starting from a fresh workspace if you can.
+      placeholder: |
+        1. Add a repository and create a workspace
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Foreman version
+      description: Shown in Settings → General → Updates, or by `foreman app info`.
+      placeholder: 1.2.14
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - Windows
+        - Built from source on another system
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating system version
+      placeholder: macOS 15.4, Windows 11 24H2
+  - type: dropdown
+    id: install
+    attributes:
+      label: How Foreman was installed
+      options:
+        - Downloaded from a release
+        - Built from source (npm run dev or npm run dist)
+        - A test build from the Installers workflow
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and model, if it involves one
+      placeholder: Claude Code, Opus
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error messages or logs
+      description: Paste the relevant lines only, after removing anything secret. `foreman doctor` output helps for command-line problems.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send it
+      options:
+        - label: I checked the open issues for the same problem.
+          required: true
+        - label: This report contains no credentials, private code or personal data.
+          required: true

@@ -17,7 +17,19 @@ Only maintainers make releases, from `main`, and every step is in [Releases](doc
 3. **Build.** `gh workflow run release.yml --ref v<version>` starts the **Release** workflow. It checks that the tag names `package.json`'s version and is on `main`, then builds the installers on GitHub-hosted runners with the **Installers** workflow. The macOS app is signed with Apple's Developer ID and notarized. The Windows app and installer are signed through SignPath once that is set up, each signing request approved by a maintainer in SignPath, and checked with SignTool. The workflow then attaches the installers, the update files and `SHA256SUMS.txt` to a **draft** GitHub release. Any failed check or signature stops it before a draft exists.
 4. **Publish.** A maintainer reviews the draft's notes and assets, then publishes it. Installed copies offer the new version from then on.
 
-Nothing is released from a developer's computer, and contributors' pull requests never run the release workflows or reach signing credentials: both workflows run only when a maintainer starts them.
+Nothing is released from a developer's computer, and contributors' pull requests never reach signing credentials or publish anything. The Release workflow runs only when a maintainer starts it, and its signing jobs wait for a maintainer's approval in the `release` environment. A pull request that changes packaging (electron-builder's configuration in `package.json`, `build/`, the release scripts or workflows) runs **Release dry run**, which builds and starts both installers unsigned, with no secrets, and publishes nothing.
+
+## Forks and rebuilds
+
+You may build and distribute Foreman from a fork under the [Apache License 2.0](LICENSE). A fork that ships its own builds should change what identifies an installed copy, so its builds never update from Foreman's releases, install over Foreman, share its data, or present themselves as Foreman's releases:
+
+- **App ID.** `build.appId` in `package.json` (`dev.foreman.app`): macOS and Windows use it to tell one app from another, including which installation an installer replaces.
+- **Product name.** `build.productName` (`Foreman`), which names the app, its installers and its data folder, and the same folder name in `defaultDataDir` in `src/cli/protocol.ts`, which the `foreman` command reads. With the same name, a fork's build would open Foreman's data and answer on its command-line socket.
+- **Where updates come from.** `build.publish` (owner `elite-build`, repo `foreman`), from which electron-builder writes the update feed an installed copy downloads from, and `RELEASES_REPO` in `src/shared/appUpdate.ts`, where the update check looks for a newer release; also `repository` in `package.json`. Point them at the fork's own repository, or turn update checks off in its builds. Otherwise a fork's users are offered Foreman's releases, which replace the fork's build.
+- **Link scheme.** `build.protocols` registers `foreman://`; two apps registering it take each other's links.
+- **Signing.** Sign with your own certificates and accounts. Foreman's signing secrets, SignPath project and [code signing policy](CODE_SIGNING.md) cover only builds made by this repository's Release workflow, and its release files' build provenance names this repository.
+
+A rebuild of an unchanged release tag for your own use needs none of this, but it is unsigned: it is not the published release, and `gh attestation verify` won't match it.
 
 Unless explicitly stated otherwise, contributions intentionally submitted for inclusion in Foreman are provided under the [Apache License 2.0](LICENSE), as described in section 5 of that license. Submit only material you have the right to contribute, and preserve the separate terms and attribution of third-party material described in [NOTICE](NOTICE).
 

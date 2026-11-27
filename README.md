@@ -56,8 +56,9 @@ Download Foreman from the [latest release](https://github.com/elite-build/forema
 
 - The macOS app is signed and notarized, so it opens without a warning.
 - The Windows installer isn't signed yet, so SmartScreen warns on first run (**More info → Run anyway**). Foreman has applied to SignPath Foundation's open-source code signing programme; see the [code signing policy](CODE_SIGNING.md).
+- On Windows 11 with **Smart App Control** on, Windows blocks the unsigned installer outright, with no **Run anyway**. Until releases are signed, use a computer where it is off or in evaluation mode, or turn it off in Windows Security → App & browser control, knowing that on some Windows 11 versions it can then be turned back on only by resetting Windows ([Windows](docs/windows.md)).
 - Foreman is tested on both macOS and Windows; see [Windows](docs/windows.md) for notes specific to Windows.
-- Each release lists the SHA-256 checksum of every file in `SHA256SUMS.txt`. The [code signing policy](CODE_SIGNING.md#verifying-a-download) explains how to check a download against it.
+- Each release lists the SHA-256 checksum of every file in `SHA256SUMS.txt`. The [code signing policy](CODE_SIGNING.md#verifying-a-download) explains how to check a download against it. Every file also has a build provenance attestation from the release workflow: `gh attestation verify <file> --repo elite-build/foreman` confirms it was built by this repository's Release workflow ([build provenance](docs/maintenance.md#build-provenance)).
 
 You'll also need:
 
@@ -76,13 +77,13 @@ npm install
 npm run dev        # or: npm run dev demo
 ```
 
-`npm run dev demo` opens the app on demo data, with no network and no agent login: your own repositories and two organizations of AI employees (eight code repositories in all), two flow runs you can watch (one waits out a usage limit, then stops at its gate), and channels that move for a few minutes after the demo is first seeded until they stand at every stage: questions, a plan, a mock to check, a part that didn't finish, a paused project, a final check and a release held at the account's usage limit until it resets. `npm run dev demo reset` starts it again from scratch, and shows the current demo data in a demo kept from before it changed. `npm run dev demo <scenario>` starts it with only what one area needs and opens on that area (`channels`, `hire-employee`; `npm run dev demo list` prints them, with the parts `--with` and `--without` add and leave out). Set `FOREMAN_DATA_DIR=/some/folder` to keep development state apart from an installed Foreman, and run `npm link` after `npm run build` to put `foreman` on your PATH from the checkout. `npm run dev` installs the dependencies when a checkout has none, and downloads Electron's binary when it's missing; if it still says Electron failed to install, run `node node_modules/electron/install.js`.
+`npm run dev demo` opens the app on demo data, with no network and no agent login: your own repositories and two organizations of AI employees (eight code repositories in all), two flow runs you can watch (one waits out a usage limit, then stops at its gate), and channels that move for a few minutes after the demo is first seeded until they stand at every stage: questions, a plan, a mock to check, a part that didn't finish, a paused project, a final check and a release held at the account's usage limit until it resets. `npm run dev demo reset` starts it again from scratch, and shows the current demo data in a demo kept from before it changed. `npm run dev demo <scenario>` starts it with only what one area needs and opens on that area (`channels`, `hire-employee`; `npm run dev demo list` prints them, with the parts `--with` and `--without` add and leave out). `npm run dev` keeps its data apart from an installed Foreman, in a folder of the checkout's own that it prints at start; set `FOREMAN_DATA_DIR=/some/folder` to choose another, or run `npm run dev -- --real-data` to open the installed app's data. Run `npm link` after `npm run build` to put `foreman` on your PATH from the checkout. `npm run dev` installs the dependencies when a checkout has none, and downloads Electron's binary when it's missing; if it still says Electron failed to install, run `node node_modules/electron/install.js`.
 
 `npm test`, `npm run typecheck` and `npm run build` are the checks; `npm run dist:mac` / `npm run dist:win` build an installer into `dist/`. See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for the rest.
 
 ### Releases
 
-Releases are built by GitHub Actions from a version tag on `main`, never on a developer's computer. A maintainer bumps the version through a pull request and tags the merged commit. Then the manual **Release** workflow builds the macOS and Windows installers on GitHub-hosted runners: the macOS app is signed and notarized by Apple, and the Windows installer is signed through SignPath once that is set up. The workflow attaches the installers, the update files and `SHA256SUMS.txt` to a draft GitHub release. A maintainer reviews the draft and publishes it. [Releases](docs/maintenance.md#releases) has the steps, and the [code signing policy](CODE_SIGNING.md) covers signing.
+Releases are built by GitHub Actions from a version tag on `main`, never on a developer's computer. A maintainer bumps the version through a pull request and tags the merged commit. Then the manual **Release** workflow builds the macOS and Windows installers on GitHub-hosted runners: the macOS app is signed and notarized by Apple, and the Windows installer is signed through SignPath once that is set up. The jobs that sign wait for a maintainer's approval, and each installer is installed and started once on the runner before anything is kept. The workflow attaches the installers, the update files and `SHA256SUMS.txt` to a draft GitHub release, with a build provenance attestation for each file. A maintainer reviews the draft and publishes it. [Releases](docs/maintenance.md#releases) has the steps, and the [code signing policy](CODE_SIGNING.md) covers signing.
 
 ### Updates
 
@@ -92,13 +93,27 @@ By default Foreman downloads the new version in the background and asks you to r
 
 Foreman installs updates itself on Windows, and on macOS only when the app is signed with an Apple Developer ID, as releases after 1.0.4 are: macOS won't let an ad-hoc signed copy, such as 1.0.4 and earlier or a test build, replace itself. There, and when a release has no installers attached, the card links to the release page instead.
 
+### Uninstall
+
+First, if you used them: run `foreman service uninstall` so Foreman no longer starts at login, and remove the `foreman` command (below). Then quit Foreman (from the tray or menu bar too, if it is running without a window).
+
+- **macOS.** Drag **Foreman** from Applications to the Bin. Remove the `foreman` command with `rm /usr/local/bin/foreman` or `rm ~/.local/bin/foreman`, whichever it was installed to.
+- **Windows.** **Settings → Apps → Installed apps → Foreman → Uninstall**. The `foreman` command's folder (`…\resources\cli` inside Foreman's install folder) was added to your user `Path`; remove that entry in **Edit environment variables for your account**.
+
+Uninstalling leaves your data, so a reinstall picks up where you were. To remove it too, delete the data folder: it holds the database of workspaces, chats and comments, your settings, encrypted credentials and logs.
+
+- **macOS:** `~/Library/Application Support/Foreman`. The key its credentials are encrypted with is **Foreman Safe Storage** in Keychain Access; delete it too. Update downloads may be left in `~/Library/Caches/foreman-updater` and `~/Library/Caches/dev.foreman.app.ShipIt`.
+- **Windows:** `%APPDATA%\Foreman`. Update downloads may be left in `%LOCALAPPDATA%\foreman-updater`.
+
+Workspaces are Git worktrees in the workspaces folder (`~/foreman/workspaces` by default, or the one in Settings). Deleting it discards any work in them you haven't pushed; afterwards run `git worktree prune` in each repository you added, and delete the workspaces' branches you no longer want. Nothing is held on a Foreman server: [what leaves your computer](docs/privacy.md) lists the services Foreman contacts, whose accounts are yours to close.
+
 ## Learn more
 
 - [Guide](docs/guide.md): repository configuration, agent tools, integrations, backups, the command line, flows, phone access and agents on this computer
 - [Command line reference](docs/cli.md)
 - [Design system](docs/design-system.md), [accessibility](docs/accessibility.md) and [performance with many agents](docs/performance.md)
 - [Contributing](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for development conventions, and the [map](docs/map.md) of where things live, with every command and environment variable
-- [Code signing policy](CODE_SIGNING.md) and [security](SECURITY.md)
+- [Code signing policy](CODE_SIGNING.md), [security](SECURITY.md) and [what leaves your computer](docs/privacy.md)
 
 ## License
 

@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:repository": "node --test tests/repositoryPolicy.test.mjs && node scripts/check-repository.mjs",
     "check:security": "node scripts/check-security.mjs",
+    "check:workflows": "node scripts/check-workflows.mjs",
     "check:licenses": "node --test tests/dependencyLicenses.test.mjs tests/thirdPartyNotices.test.mjs && node scripts/check-licenses.mjs",
     "check:licenses:distribution": "node scripts/check-licenses.mjs --distribution",
     "check:mcp": "vitest run tests/cliSchema.test.ts tests/mcpSettingsCoverage.test.ts tests/foremanCli.test.ts tests/foremanDelegation.test.ts tests/foremanMcp.test.ts",

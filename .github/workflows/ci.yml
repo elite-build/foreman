@@ -43,6 +43,9 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run check:ui
+      # The workflows themselves: SHA-pinned actions, permissions, no secrets on pull requests, the required check names
+      # in docs/maintenance.md, and actionlint (pinned and checksum-verified in scripts/security-tools.json).
+      - run: npm run check:workflows
       - name: New component boundary
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}

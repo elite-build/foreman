@@ -1,0 +1,48 @@
+name: Feature request
+description: Something Foreman could do, or do better.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before the solution: what you were trying to do and where Foreman got in the way.
+        This issue is public, so use made-up examples rather than private code or data.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you were trying to do, and what made it hard or impossible.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like Foreman to do
+      description: How it would work from your side, in the window, the `foreman` command or the phone view.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today instead
+      description: Workarounds, or other ways you considered.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Workspaces and chat
+        - Agents and approvals
+        - Review, Git and pull requests
+        - Terminals, scripts and checks
+        - Automations and flows
+        - AI employees
+        - Integrations (GitHub, GitLab, Linear, Slack, Langfuse)
+        - Remote workspaces
+        - Command line
+        - Phone and other computers
+        - Settings, appearance and accessibility
+        - Installing and updating
+        - Something else
+    validations:
+      required: true
