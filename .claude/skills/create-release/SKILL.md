@@ -92,22 +92,33 @@ Commit both with the repository's subject for it:
 git commit -am "Release <version>"
 ```
 
-## 5. Run the checks and open the bump PR
+## 5. Read main's checks and open the bump PR
 
-Run `npm run typecheck`, `npm test`, `npm run build`, `npm run check:repository`, `npm run check:licenses`, `npm run check:security` and `npm audit --audit-level=high`, and write down each result. Rerun on its own any test that fails under the full suite's load before you count it as a failure. A failure this branch causes is fixed; a failure already on `main` (a known advisory, a known flaky test) is reported, not fixed here. When a check fails, ask the user whether to release anyway.
+Run no checks locally. The bump PR changes only the version fields and `CHANGELOG.md`, every commit on `main` passed CI's whole suite on its own PR, and CI runs the suite once more on the bump PR (step 6). Nightly covers the rest on `main`: macOS, Node 22, `check:security`, `npm audit --audit-level=high`, `check:repository` and `check:licenses`. Read its latest run, and whether a dependency changed since:
+
+```sh
+gh run list --workflow nightly.yml --branch main --limit 1 --json databaseId,conclusion,headSha,createdAt,url
+git log --oneline <headSha>..origin/main -- package.json package-lock.json
+```
+
+- Nightly passed and the log prints nothing: write down the run's date and URL, and go on.
+- Nightly failed: show the user which jobs failed and why (`gh run view <databaseId> --log-failed`, the lines that say why), and ask whether to release anyway. A failure already on `main` is reported, not fixed here.
+- The log prints a commit (a dependency changed since that run): start Nightly on `main` now with `gh workflow run nightly.yml --ref main` and carry on; step 7 reads its result before tagging.
 
 Open the PR as [create-pr](../create-pr/SKILL.md) steps 6 and 7 describe, with:
 
 - **Title**: `Release <version>`.
 - **Lead**: the version, and that only the version fields and `CHANGELOG.md` change.
 - **What changed**: the new `CHANGELOG.md` entry, quoted, so the reviewer approves the notes as well as the bump.
-- **Verification**: the checks from above.
+- **Verification**: the Nightly run relied on (date, URL, result), and that CI runs the whole suite on this PR.
 - **Compatibility**: that the release carries the installers and update files (step 9), so installed copies can update themselves.
 - **Release note**: `None: release bump; its notes are the CHANGELOG.md entry it adds.`
 
 Read it back with `gh pr view` as create-pr says.
 
 ## 6. Merge the bump
+
+CI has to pass first; the Require CI ruleset has no bypass. Watch it with `gh pr checks <number> --watch --fail-fast` in the background (about five minutes). If it fails, read the log (`gh run view <run> --log-failed`) and rerun a test that failed only under load on its own; a real failure is on `main` too, so stop and tell the user.
 
 `main` needs one approval, and GitHub doesn't let authors approve their own PRs. Unless the request already said, ask the user whether to:
 
@@ -124,6 +135,8 @@ gh pr merge <number> --squash --admin    # the bypass, only on the user's word
 If the user chooses to wait, stop here and say that running this skill again after the merge picks up at step 7.
 
 ## 7. Tag the merged version
+
+If step 5 started Nightly, read it first (`gh run list --workflow nightly.yml --branch main --limit 1 --json databaseId,status,conclusion,url`, and `gh run watch <databaseId>` while it runs). If it failed, show the user why and ask whether to release anyway.
 
 ```sh
 npm run release -- tag --push

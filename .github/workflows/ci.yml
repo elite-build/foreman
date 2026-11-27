@@ -1,9 +1,11 @@
 name: CI
 
 # Pull requests into main, once they are ready for review: a draft runs nothing, marking it ready starts a run, and each
-# push to a ready PR runs again. The Require CI ruleset requires both jobs by name, with no bypass, so a PR whose types,
-# design-system checks or tests fail can't be merged. Renaming a job means changing that ruleset too. Nothing runs after a merge: the Release workflow builds both platforms, and Nightly
-# covers macOS, Node 22 and the slower policy checks.
+# push to a ready PR runs again. The Require CI ruleset requires "Types and design system" and "Tests and build" by name,
+# with no bypass, so a PR whose types, design-system checks or tests fail can't be merged. Renaming either means changing
+# that ruleset too. This is the only full run of the suite a PR gets: agents run `npm run test:changed` locally. Nothing
+# runs after a merge: the Release workflow builds both platforms, and Nightly covers macOS, Node 22 and the slower policy
+# checks.
 #
 # A skipped job reports success, which is harmless here only because GitHub never merges a draft; don't skip these jobs
 # on any other condition, or a later skipped run would stand in for a failed one.
@@ -49,12 +51,19 @@ jobs:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: node scripts/check-new-components.mjs "$BASE_SHA"
 
-  tests:
-    name: Tests and build
+  # The suite in four parts at once: run whole on one runner it took 15-17 minutes, most of it real Git processes, which
+  # are slow to start on Windows. Vitest splits the test files by count; the slowest file sets the floor for its part.
+  test-shards:
+    name: Tests (${{ matrix.shard }}/4)
     if: ${{ !github.event.pull_request.draft }}
     # Windows, where the suite is run day to day; Nightly runs it on macOS.
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      # Every part runs to the end, so one run reports every failure.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,8 +76,26 @@ jobs:
       # Reviewed native setup only, on disposable hosted runners with no provider credentials.
       - run: npm rebuild node-pty
       - run: git config --global user.name 'CI'; git config --global user.email 'ci@example.invalid'
-      # Four workers: the full suite times out under load on Windows with more.
-      - run: npm test -- --maxWorkers=4
+      # Four workers: the suite times out under load on Windows with more.
+      - run: npm test -- --maxWorkers=4 --shard=${{ matrix.shard }}/4
         env:
           FOREMAN_DATA_DIR: ${{ runner.temp }}/foreman-test-data
-      - run: npm run build
+      # The build takes seconds; it rides on the first part rather than paying for another runner's install.
+      - if: ${{ matrix.shard == 1 }}
+        run: npm run build
+
+  # The one check the Require CI ruleset names for the suite and build, so splitting the suite didn't change the ruleset.
+  # It fails unless every part passed. !cancelled() rather than always(): a run cancelled by a newer push reports nothing.
+  tests:
+    name: Tests and build
+    needs: test-shards
+    if: ${{ !cancelled() && !github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every part of the suite passed
+        env:
+          RESULT: ${{ needs.test-shards.result }}
+        run: |
+          echo "Test parts: $RESULT"
+          test "$RESULT" = success

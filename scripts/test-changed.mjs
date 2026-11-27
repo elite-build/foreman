@@ -1,5 +1,5 @@
-// The tests a change can affect, for the loop while working: the whole suite takes minutes (most of it real Git
-// processes, which are slow to start on Windows). `npm test` stays the check before a pull request.
+// The tests a change can affect, for the loop while working and the check before a pull request: the whole suite takes
+// minutes (most of it real Git processes, which are slow to start on Windows), and CI runs it on every ready PR.
 //
 //   npm run test:changed [-- <base ref>] [-- <vitest options>]    (default base origin/main, else main)
 //
@@ -8,7 +8,10 @@
 // or a setup file changes. Some tests read files rather than import them, out of the import graph's sight, so this adds:
 //   - the design-system, contrast, i18n and ui/ checks (`npm run check:ui`) when the renderer or the i18n catalogues
 //     change, as the pre-commit hook does;
-//   - for a changed file that isn't a module (a doc, CSS, JSON, a fixture), every test that names it.
+//   - for a changed file in a folder that isn't a module (a doc, CSS, JSON, a fixture), every test that names it.
+//     Top-level files (README.md, AGENTS.md, CHANGELOG.md) are left out: no test reads one, and their names are common
+//     fixture names (makeRepo writes a README.md), so naming them ran 37 slow tests for a README edit. package.json,
+//     the lockfile and tsconfig are forceRerunTriggers, so a change to one still runs everything.
 
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
@@ -55,7 +58,7 @@ const changed = [
 
 const extra = new Set()
 if (changed.some((file) => CHECK_UI.test(file))) for (const test of checkUiTests()) extra.add(test)
-const unseen = changed.filter((file) => !MODULE.test(file))
+const unseen = changed.filter((file) => !MODULE.test(file) && file.includes('/'))
 if (unseen.length) {
   for (const test of testsIn('tests')) {
     const source = readFileSync(test, 'utf8')

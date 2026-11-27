@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-27: The whole suite runs only in CI, in four parts, and neither a PR nor a release runs it locally
+
+**Decision.** CI splits the suite across four Windows jobs behind the one **Tests and build** check. Before a PR an agent runs `typecheck`, `test:changed` and `build`. A release runs no local checks: it reads the latest Nightly on `main`, and CI tests the bump PR.
+
+**Why.** The suite took 15-17 minutes on one runner, and an agent ran it again locally before each PR, so a PR cost over half an hour of tests and a release more. With few users, moving faster is worth a failure found by CI after the push. This narrows the 2026-11-21 entry.
+
+**Turned down.** Only affected tests in CI (nothing runs after a merge, and the import graph misses tests that read files). The PR suite on Linux, for now (likely faster, but Windows-only bugs would reach `main`; to be measured). A time limit per test file that fails CI.
+
+**Revisit when.** A regression reaches `main` that the local run would have caught, or Foreman has many more users.
+
 ## 2026-11-24: Release notes are ordered by what the reader has to do, one bullet per effect, and releases stay small
 
 **Decision.** A release's sections go in this order: **Before you update**, **Security**, **Fixed**, **Added**, **Changed**, then **Development**, which stays in `CHANGELOG.md` and out of **What's new**. Each bullet is one effect. A change to how something worked says before, now and what to do. Foreman keeps releasing once or twice a day.
