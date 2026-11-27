@@ -46,7 +46,7 @@ There is no mandatory repository `.env` file for building or running the ordinar
 
 | Setting | Meaning |
 | --- | --- |
-| `FOREMAN_DATA_DIR` | Isolate development/test state from installed app data; `SWITCHYARD_DATA_DIR` is a legacy fallback. Use a disposable folder for manual tests. |
+| `FOREMAN_DATA_DIR` | Isolate development/test state from installed app data; `SWITCHYARD_DATA_DIR` is a legacy fallback. Use a disposable folder for manual tests. Without it, `npm run dev` sets it to the worktree's own folder, `<appData>/Foreman Dev/<worktree>-<hash of its path>` (`scripts/devData.mjs`), outside the worktree so it survives Foreman making the worktree again, and prints where; `npm run dev -- --real-data` leaves it unset, so the development app opens the installed app's data. Packaged builds and `npm run dev demo` are unaffected. |
 | `FOREMAN_DEMO`, `FOREMAN_DEMO_RESET`, `FOREMAN_DEMO_DIR` | Set by `npm run dev demo [reset]` (`scripts/dev.mjs`); ignored by an installed build. `FOREMAN_DEMO_DIR` chooses the demo's folder, default `Foreman Demo` beside the app's data folder (`Foreman Demo (<scenario>)` for a scenario other than `full`). A folder with files that isn't a demo's is refused, never deleted. |
 | `FOREMAN_SCENARIO`, `FOREMAN_SCENARIO_WITH`, `FOREMAN_SCENARIO_WITHOUT` | What the demo or a screenshot run starts with (`src/shared/scenarios.ts`): a scenario's name, and parts to add and leave out. Set by `npm run dev demo <scenario> [--with …] [--without …]` and `npm run screens -- --scenario <name>`; prefer those. |
 | `FOREMAN_PORT` | First port in a local workspace's reserved block of 10. Use the assigned block for development servers. Cloud workspaces expose sandbox URLs instead. |
@@ -65,7 +65,7 @@ These come from `package.json`. On Windows PowerShell, use `npm.cmd` if executio
 | Command | Purpose |
 | --- | --- |
 | `npm install` / `npm ci` | Install dependencies (clean reproducible installs use `ci`). Postinstall fixes Unix PTY helper permissions and configures hooks when appropriate. |
-| `npm run dev` | Run the Electron app with electron-vite development builds. |
+| `npm run dev` | Run the Electron app with electron-vite development builds, on the worktree's own data folder (printed at start; see `FOREMAN_DATA_DIR`). `npm run dev -- --real-data` runs it on the installed app's data instead. |
 | `npm run dev demo` | The development app on demo data (`src/main/demo.ts`): the screenshot fixture in a folder kept between launches, with no network and no external services. Two organizations (`demoOrganization.ts`, `demoLumen.ts`). Agents answer from a script: each launch starts two flow runs you can watch (`src/main/demoRun.ts`), and AI employees' runs call their real tools while a director starts the channels and plays the person for some decisions (`src/main/demoEmployees.ts`). `npm run dev demo reset` seeds it again; bump `DEMO_VERSION` in `demo.ts` when the seed changes, so a kept demo says a reset shows the new one. `npm run dev demo <scenario>` starts it with only what an area needs, in a folder of its own, and opens on that area's screen: `channels`, `hire-employee`, or `full` (the default). `--with <part,…>` and `--without <part,…>` add and leave out parts (`team`, `lumen`, `usage`, `flows`, `channels`), after a `--` so npm passes them on; `npm run dev demo list` prints the scenarios and parts, which are `src/shared/scenarios.json`. |
 | `npm run typecheck` | Strict TypeScript check over source, tests and build/test configs. |
 | `npm test` | Full Vitest suite. A focused run is `npm test -- tests/<name>.test.ts`. |
@@ -79,7 +79,7 @@ These come from `package.json`. On Windows PowerShell, use `npm.cmd` if executio
 | `npm run cloud:smoke` | Live Vercel integration test; requires the three Vercel variables above and a build first. Run only when live sandbox use is within the task's scope. |
 | `npm run dist:mac` / `npm run dist:win` | Build and package DMG/NSIS into `dist/`, with publishing disabled. |
 
-The security, licence, repository and MCP checks (`check:security`, `check:licenses`, `check:repository`, `check:mcp`) are in the local-check table of [maintenance.md](maintenance.md), with CI, the nightly run and the installer and release workflows.
+The security, licence, repository, MCP and workflow checks (`check:security`, `check:licenses`, `check:repository`, `check:mcp`, `check:workflows`) are in the local-check table of [maintenance.md](maintenance.md), with CI, the nightly run and the installer and release workflows.
 
 ### Packaging and generated files
 

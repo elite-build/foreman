@@ -33,8 +33,8 @@ export function loadSqlite(): SqliteModule {
   return sqlite
 }
 
-/** Each entry upgrades the schema by one version. Never edit one that has shipped. */
-const SCHEMA: string[] = [
+/** Each entry upgrades the schema by one version. Never edit one that has shipped: tests/dbMigrations.test.ts pins each by its hash. */
+export const SCHEMA: readonly string[] = [
   `
   CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE workspaces (id TEXT PRIMARY KEY, repo_id TEXT, json TEXT NOT NULL);

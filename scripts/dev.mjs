@@ -7,9 +7,12 @@
 // with and which screen it opens on, in a folder of its own; `--with` and `--without` add and leave out parts of it
 // (`npm run dev demo -- --without lumen,flows`: npm needs the `--` before a flag). `list` prints the scenarios and parts.
 // `npm run pr:screens -- capture --scenario <name>` takes a pull request's screenshots of the same data.
+// Without `demo` it runs on this worktree's own data folder (scripts/devData.mjs), not the installed app's, and says
+// where: FOREMAN_DATA_DIR chooses another, and `npm run dev -- --real-data` uses the installed app's.
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { devDataDir } from './devData.mjs'
 import { scenarioNames, scenariosText } from './scenarios.mjs'
 
 // A new worktree has no node_modules (Foreman makes each workspace without its ignored files): install them first.
@@ -22,7 +25,7 @@ if (!existsSync('node_modules/.bin/electron-vite')) {
 // node_modules/electron/path.txt and fails with "Electron uninstall", so fetch the binary here before it starts.
 createRequire(import.meta.url)('electron')
 
-const args = process.argv.slice(2)
+let args = process.argv.slice(2)
 const env = { ...process.env }
 if (args[0] === 'demo') {
   args.shift()
@@ -43,6 +46,13 @@ if (args[0] === 'demo') {
     } else break
     args.shift()
   }
+} else {
+  const data = devDataDir({ args })
+  args = data.args
+  if (data.dir) env.FOREMAN_DATA_DIR = data.dir
+  if (data.source === 'worktree') console.log(`foreman: this worktree's development data is in ${data.dir} (FOREMAN_DATA_DIR chooses another; \`npm run dev -- --real-data\` uses the installed app's)`)
+  else if (data.source === 'env') console.log(`foreman: development data in ${data.shown} (FOREMAN_DATA_DIR)`)
+  else console.log("foreman: --real-data: using the installed app's data folder")
 }
 // npm puts node_modules/.bin on PATH; the shell finds electron-vite.cmd on Windows.
 const child = spawn('electron-vite', ['dev', ...args], { env, stdio: 'inherit', shell: true })
