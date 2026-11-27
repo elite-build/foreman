@@ -99,8 +99,8 @@ describe('G1 · credentials probes', () => {
     expect(await probeSignIn('hermes', deps({ '/home/me/.hermes/.env': '# OPENROUTER_API_KEY=sk\nHERMES_MODEL=x\n' }))).toBeNull()
     expect(await probeSignIn('hermes', deps({ '/home/me/.hermes/.env': 'OPENAI_API_KEY=${KEY}\n' }))).toBeNull()
     expect(await probeSignIn('hermes', deps({ '/srv/hermes/.env': 'ANTHROPIC_API_KEY=sk-ant\n' }, { env: { HERMES_HOME: '/srv/hermes' } }))).toMatchObject({ source: '/srv/hermes/.env' })
-    const win = deps({ 'C:\Users\me\AppData\Local\hermes\.env': 'OPENROUTER_API_KEY=sk-or-1\n' }, { home: 'C:\Users\me', platform: 'win32', env: { LOCALAPPDATA: 'C:\Users\me\AppData\Local' } })
-    expect(await probeSignIn('hermes', win)).toMatchObject({ source: '~\AppData\Local\hermes\.env' })
+    const win = deps({ 'C:\\Users\\me\\AppData\\Local\\hermes\\.env': 'OPENROUTER_API_KEY=sk-or-1\n' }, { home: 'C:\\Users\\me', platform: 'win32', env: { LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' } })
+    expect(await probeSignIn('hermes', win)).toMatchObject({ source: '~\\AppData\\Local\\hermes\\.env' })
     expect(await probeSignIn('hermes', deps({}))).toBeNull()
   })
 

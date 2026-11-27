@@ -26,7 +26,7 @@ describe('packaged smoke test', () => {
     expect(findInstaller(dist, 'darwin')).toBe('Foreman-1.2.3-arm64.dmg')
     expect(findInstaller(dist, 'win32')).toBe('Foreman-Setup-1.2.3.exe')
     expect(() => findInstaller(['latest.yml'], 'win32')).toThrow('found none')
-    expect(() => findInstaller(['a.dmg', 'b.dmg'], 'darwin')).toThrow('found 2')
+    expect(() => findInstaller(['a.dmg', 'b.dmg'], 'darwin')).toThrow('Expected one DMG, found a.dmg, b.dmg')
     expect(() => findInstaller(dist, 'linux')).toThrow('No packaged smoke test')
   })
 

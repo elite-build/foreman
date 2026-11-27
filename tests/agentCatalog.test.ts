@@ -41,10 +41,10 @@ const auth = (over: Partial<{ claudeAuth: 'cli' | 'apiKey'; codexAuth: 'cli' | '
 })
 
 describe('agent registry', () => {
-  it('lists the 32 agents once each, in the three levels the brief names', () => {
+  it('lists the 33 agents once each, in the three levels the brief names', () => {
     const ids = AGENT_CATALOG.map((a) => a.id)
     expect(new Set(ids).size).toBe(ids.length)
-    expect(ids).toHaveLength(32)
+    expect(ids).toHaveLength(33)
     expect(AGENT_CATALOG.filter((a) => a.level === 'full').map((a) => a.id)).toEqual([...FULL_AGENT_IDS])
     expect(AGENT_CATALOG.filter((a) => a.level === 'chat').map((a) => a.id)).toEqual([...CHAT_AGENT_IDS])
     expect(AGENT_CATALOG.filter((a) => a.level === 'terminal').map((a) => a.id)).toEqual([...TERMINAL_AGENT_IDS])
@@ -157,7 +157,7 @@ describe('the picker', () => {
     ])
     // OpenCode is enabled but not installed: listed, not ready (picking it opens its settings).
     expect(groups[0].agents.find((a) => a.id === 'opencode')!.ready).toBe(false)
-    expect(enabledCount(prefs)).toEqual({ enabled: 5, total: 32 })
+    expect(enabledCount(prefs)).toEqual({ enabled: 5, total: 33 })
   })
 
   it('makes a chat agent available only while enabled; Terminal agents never take chats', () => {

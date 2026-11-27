@@ -389,7 +389,9 @@ describe('G1 · Hermes Agent through `hermes acp`', () => {
   it('declares no plan mode: its session modes are about edit approvals, so Plan stays off', () => {
     const modes = [{ id: 'default', name: 'Default' }, { id: 'accept_edits', name: 'Accept Edits' }, { id: 'dont_ask', name: "Don't Ask" }]
     expect(acpPlanMode(modes)).toBeUndefined()
-    expect(capsOf(staticCapabilities('hermes')!)).toMatchObject({ plan: false, approvals: true, rewind: true, mcp: true })
+    // It runs ordinary commands without asking, so Ask can't hold and only Never ask is offered: no approvals to choose.
+    expect(capsOf(staticCapabilities('hermes')!)).toMatchObject({ plan: false, approvals: false, rewind: true, mcp: true })
+    expect(staticCapabilities('hermes')!.enforcement.permissionModes).toEqual(['never-ask'])
   })
 })
 
