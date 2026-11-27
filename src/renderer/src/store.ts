@@ -1,4 +1,5 @@
 import type { BrowserState } from '../../shared/browser'
+import type { BrowserLinkInfo } from '../../shared/browserLink'
 import type { Attachment } from '../../shared/types'
 // Renderer state: the main process pushes snapshots and events, components
 // read slices through useStore.
@@ -102,6 +103,8 @@ export type EmployeesRoute =
 interface State {
   browserTabs: Record<string, { url: string; request: number; active: boolean; split: boolean; state?: BrowserState }>
   browserAddressRequest: { workspaceId: string; nonce: number } | null
+  // Foreman for Chrome: the browsers Foreman knows (api.browserLinks, then the browser-links event).
+  browserLinks: BrowserLinkInfo[]
   snapshot: AppSnapshot | null
   chats: Record<string, ChatItem[]>
   approvals: ApprovalRequest[]
@@ -272,6 +275,7 @@ function savePref(key: string, value: unknown): void {
 let state: State = {
   browserTabs: {},
   browserAddressRequest: null,
+  browserLinks: [],
   snapshot: null,
   chats: {},
   approvals: [],
@@ -767,6 +771,9 @@ function receiveEvent(event: MainEvent): void {
 
 function handleEvent(event: MainEvent): void {
   switch (event.type) {
+    case 'browser-links':
+      setState({ browserLinks: event.links })
+      return
     case 'browser-open':
       openBrowserTab(event.workspaceId, event.url)
       return
@@ -990,6 +997,8 @@ export async function initStore(): Promise<void> {
   const selected = active.find((w) => w.id === revealOnLoad) ?? active.find((w) => w.id === lastSelected) ?? active[0]
   revealOnLoad = null
   setState({ snapshot, approvals, selectedWorkspaceId: selected?.id ?? null })
+  // Foreman for Chrome: the browsers known so far; the browser-links event keeps them current.
+  void api.browserLinks().then((browserLinks) => setState({ browserLinks }), () => setState({ browserLinks: [] }))
   // #3: the history for Home → Recent, and a link or tray entry that came first.
   void api.attentionHistory().then((attentionHistory) => setState({ attentionHistory }), () => undefined)
   const pending = navigateOnLoad

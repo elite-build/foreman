@@ -166,6 +166,10 @@
           "filter": [
             "foreman"
           ]
+        },
+        {
+          "from": "resources/chrome-extension",
+          "to": "chrome-extension"
         }
       ],
       "category": "public.app-category.developer-tools",
@@ -192,6 +196,10 @@
           "filter": [
             "foreman.cmd"
           ]
+        },
+        {
+          "from": "resources/chrome-extension",
+          "to": "chrome-extension"
         }
       ],
       "target": [
@@ -220,6 +228,10 @@
           "filter": [
             "foreman"
           ]
+        },
+        {
+          "from": "resources/chrome-extension",
+          "to": "chrome-extension"
         }
       ]
     }

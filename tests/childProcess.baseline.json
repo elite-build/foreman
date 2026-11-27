@@ -15,6 +15,7 @@
   "src/main/agents/opencode/record.ts": 1,
   "src/main/agents/opencode/server.ts": 1,
   "src/main/agents/signInProbes.ts": 1,
+  "src/main/browserHostInstall.ts": 1,
   "src/main/cli/app.ts": 1,
   "src/main/cli/token.ts": 1,
   "src/main/cliInstall.ts": 1,

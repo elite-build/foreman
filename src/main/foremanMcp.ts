@@ -16,6 +16,7 @@ import type { ForemanCli } from './foremanCli'
 import { FOREMAN_CLI_TOOL } from '../shared/foremanCli'
 import { EMPLOYEE_TOOL_NAMES, EMPLOYEE_TOOLS, WORKSPACE_MEMORY_TOOL_NAMES, WORKSPACE_MEMORY_TOOLS } from '../shared/employeeTools'
 import type { EmployeeTools } from './employeeTools'
+import { BROWSER_TOOLS, BROWSER_TOOL_NAMES, type BrowserToolName } from '../shared/browserLink'
 
 // `cap`: the turn's own (docs/agent-access.md §4), which its start_task and send_task pass on.
 interface Grant { id: string; sessionId: string; workspaceId: string; readOnly: boolean; cap?: TurnCap }
@@ -31,6 +32,11 @@ interface Deps {
   // docs/ai-employees.md §4: the organization whose memory a workspace's agent may read (its repository's space, while
   // that has a memory repository). Absent or undefined: memory_search and memory_read aren't offered.
   memoryOrganization?(workspaceId: string): string | undefined
+  // Foreman for Chrome: the browser tools (browser_*), offered when enabled() and to interactive turns only (core.ts runs them).
+  browser?: {
+    enabled(): boolean
+    call(workspaceId: string, tool: BrowserToolName, args: Record<string, unknown>): Promise<{ text?: string; png?: string }>
+  }
 }
 
 /** Local capabilities, never the CLI's optional/cooperative caller identity. */
@@ -225,6 +231,28 @@ export class ForemanMcp {
           return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
         }
       })
+    }
+    // Foreman for Chrome: an interactive turn may drive the user's browser. Automations, flows, auto reviews and AI employees never do.
+    const turn = this.deps.session(this.grants.get(grantId)?.sessionId ?? '')
+    if (this.deps.browser?.enabled() && turn && !turn.unattended && !turn.employeeRun && !turn.autoReview) {
+      for (const name of BROWSER_TOOL_NAMES) {
+        const definition = BROWSER_TOOLS[name]
+        if (readOnly && !definition.readOnly) continue
+        server.registerTool(name, {
+          description: definition.description,
+          inputSchema: definition.schema as z.ZodObject<z.ZodRawShape>,
+          annotations: { readOnlyHint: definition.readOnly }
+        }, async (args) => {
+          try {
+            const scope = this.scope(grantId)
+            const result = await this.deps.browser!.call(scope.workspaceId, name, args as Record<string, unknown>)
+            if (result.png) return { content: [{ type: 'image' as const, data: result.png, mimeType: 'image/png' }] }
+            return { content: [{ type: 'text' as const, text: result.text ?? '' }] }
+          } catch (err) {
+            return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
+          }
+        })
+      }
     }
     return server
   }

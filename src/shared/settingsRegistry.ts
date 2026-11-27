@@ -5,7 +5,7 @@ import { AGENT_SEARCH_WORDS } from './agentCatalog'
 import type { AgentKind } from './agents'
 import type { PlainKey } from './i18n'
 
-export type PersonalSection = 'quick' | 'general' | 'account' | 'integrations' | 'appearance' | 'accessibility' | 'models' | 'git' | 'environment' | 'experimental' | 'advanced' | 'usage' | 'data' | 'devices' | 'cloud' | 'spaces'
+export type PersonalSection = 'quick' | 'general' | 'account' | 'integrations' | 'appearance' | 'accessibility' | 'models' | 'git' | 'environment' | 'experimental' | 'advanced' | 'usage' | 'data' | 'devices' | 'cloud' | 'spaces' | 'browser'
 export type RepoSection = 'git' | 'environment' | 'integrations' | 'scripts' | 'cloud' | 'actions' | 'misc'
 
 export interface SettingEntry {
@@ -52,10 +52,12 @@ export const PAGE_LABELS: Record<PersonalSection | 'agents', PlainKey> = {
   // Remote (cloud) workspaces.
   cloud: 'settings.page.cloud',
   // AI employees' spaces (docs/ai-employees.md §10): Personal and each organization.
-  spaces: 'spaces.page.title'
+  spaces: 'spaces.page.title',
+  // Foreman for Chrome: the browsers agents in a workspace may use (shared/browserLink.ts).
+  browser: 'settings.page.browser'
 }
 
-export type SettingsCategory = 'quick' | 'general' | 'appearance' | 'accessibility' | 'agents' | 'account' | 'integrations' | 'git' | 'environment' | 'data' | 'advanced' | 'devices' | 'cloud' | 'spaces'
+export type SettingsCategory = 'quick' | 'general' | 'appearance' | 'accessibility' | 'agents' | 'account' | 'integrations' | 'browser' | 'git' | 'environment' | 'data' | 'advanced' | 'devices' | 'cloud' | 'spaces'
 
 /**
  * The categories of the settings menu, each with its pages. Every page is split into short parts, one per menu entry
@@ -72,6 +74,7 @@ export const CATEGORIES: { id: SettingsCategory; label: PlainKey; pages: (Person
   { id: 'cloud', label: 'settings.page.cloud', pages: ['cloud'] },
   { id: 'account', label: 'settings.category.account', pages: ['account'] },
   { id: 'integrations', label: 'settings.page.integrations', pages: ['integrations'] },
+  { id: 'browser', label: 'settings.page.browser', pages: ['browser'] },
   { id: 'git', label: 'settings.page.git', pages: ['git'] },
   { id: 'environment', label: 'settings.page.environment', pages: ['environment'] },
   { id: 'data', label: 'settings.category.data', pages: ['data', 'usage'] },
@@ -99,6 +102,7 @@ export const REPO_TAB_LABELS: Record<RepoSection, PlainKey> = {
 // Extra words that find a page itself.
 export const PAGE_KEYWORDS: Record<PersonalSection | 'agents' | RepoSection, string[]> = {
   quick: ['quick', 'favourites', 'favorites', 'pinned', 'tiles', 'shortcuts'],
+  browser: ['chrome', 'edge', 'brave', 'extension', 'browser', 'web', 'tabs', 'websites', 'blocked sites', 'browser control'],
   general: ['preferences', 'config', 'notifications', 'sound', 'send', 'language'],
   account: ['user', 'profile', 'login', 'sign in', 'github', 'privacy'],
   integrations: ['linear', 'slack', 'github', 'langfuse', 'traces', 'token', 'api key', 'mcp', 'accounts', 'connections', 'work', 'personal', 'notifications', 'dm', 'reviewers'],
@@ -178,6 +182,12 @@ export const SETTINGS: SettingEntry[] = [
   { id: 'integrations-connections', page: p('integrations'), part: 'connections', titleKey: 'integrations.connections.title', title: 'Connections', description: 'GitHub, Linear, Slack and Langfuse accounts Foreman and your agents use, with one default per service.', descriptionKey: 'settings.row.integrationsConnections.desc', keywords: ['linear', 'slack', 'github', 'langfuse', 'token', 'api key', 'pat', 'mcp', 'work', 'personal', 'account'] },
   { id: 'slack-rules', page: p('integrations'), part: 'rules', titleKey: 'integrations.rules.title', title: 'Slack rules', description: 'Message yourself, reviewers or a channel when a pull request or agent needs attention.', descriptionKey: 'settings.row.slackRules.desc', keywords: ['slack', 'dm', 'notify', 'review', 'reviewer', 'ci', 'pull request'] },
   { id: 'slack-people', page: p('integrations'), part: 'people', titleKey: 'integrations.people.title', title: 'People', description: 'Which Slack person each GitHub reviewer is.', descriptionKey: 'settings.row.slackPeople.desc', keywords: ['slack', 'github', 'reviewer', 'match'] },
+
+  // Foreman for Chrome (BrowserSection.tsx): every row is on the Browser page, which has no parts.
+  { id: 'browser-control', page: p('browser'), titleKey: 'settings.browser.control.label', title: 'Let agents use your browsers', descriptionKey: 'settings.browser.control.help', description: 'Agents in a workspace can open and use tabs in one browser you choose.', keywords: ['browser', 'chrome', 'edge', 'brave', 'extension', 'tabs', 'web', 'agents'] },
+  { id: 'browser-install', page: p('browser'), titleKey: 'settings.browser.install.title', title: 'Install Foreman for Chrome', description: 'Load the extension folder into Chrome or Edge, in developer mode.', descriptionKey: 'settings.browser.install.help', keywords: ['browser', 'chrome', 'edge', 'brave', 'extension', 'unpacked', 'developer mode', 'install'] },
+  { id: 'browser-list', page: p('browser'), titleKey: 'settings.browser.list.title', title: 'Browsers', description: 'The browsers that connected to Foreman: allow one, make one the default, rename or forget it.', descriptionKey: 'settings.browser.list.help', keywords: ['browser', 'chrome', 'edge', 'brave', 'default', 'allow', 'connected', 'rename', 'forget'] },
+  { id: 'browser-blocked', page: p('browser'), titleKey: 'settings.browser.blocked.title', title: 'Blocked sites', description: 'Sites no agent may open or act on.', descriptionKey: 'settings.browser.blocked.help', keywords: ['browser', 'blocked', 'sites', 'websites', 'banned', 'mail', 'password', 'bank'] },
 
   // Appearance
   { id: 'theme', page: p('appearance'), part: 'interface', titleKey: 'settings.appearance.theme', title: 'Theme', description: 'Light, dark, or follow the system. Toggle with ⌘⌥T.', descriptionKey: 'settings.row.theme.desc' },

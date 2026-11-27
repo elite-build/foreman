@@ -1142,6 +1142,9 @@ export class WorkspaceService {
       else delete ws.status
     }
     if (patch.pinned !== undefined) ws.pinned = patch.pinned
+    // Foreman for Chrome: the browser this workspace's agents use (a BrowserLinkInfo id, or 'none'); null goes back to the default.
+    if (patch.browser === null) delete ws.browser
+    else if (typeof patch.browser === 'string') ws.browser = patch.browser
     if (patch.later !== undefined) {
       const later = parseLater(patch.later)
       if (later) ws.later = { at: new Date().toISOString(), ...later }

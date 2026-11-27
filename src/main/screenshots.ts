@@ -614,6 +614,9 @@ export const SCREENS = [
   'settings-devices',
   // Data & devices › Langfuse: sending Foreman's own traces, off (the fixture has no Langfuse connection).
   'settings-langfuse',
+  // Foreman for Chrome: Settings → Browser, and the workspace header's browser menu open (both with the feature on).
+  'settings-browser',
+  'workspace-browser-menu',
   'automations',
   'automations-template',
   // With Settings → Experimental → Flows on: the Flows and Personas sections, New workspace's Flow tab, a run's Flow tab and the Lineage tab.

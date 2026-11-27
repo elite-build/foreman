@@ -557,6 +557,9 @@ export interface Workspace {
   // A cloud workspace: its worktree and agent live in this sandbox instead of a folder here.
   cloud?: WorkspaceCloud
   portBase: number
+  // Foreman for Chrome (shared/browserLink.ts): the browser this workspace's agents use, a BrowserLinkInfo id, or 'none'.
+  // Absent: Settings.browserDefault, else the first allowed browser that is connected.
+  browser?: string
   state: WorkspaceState
   status?: WorkspaceStatus
   // #21: when the status was last set, for the board's Done window. Absent for statuses set before #21.
@@ -1282,6 +1285,14 @@ export interface Settings {
   opencodeExecutablePath: string
   // Lets Claude Code drive Chrome through its extension (claude --chrome).
   chromeMode: boolean
+  // Foreman for Chrome (shared/browserLink.ts): agents in workspaces may use the user's connected browsers. Off by default.
+  browserControl?: boolean
+  // The browsers the user allowed (by the extension's install id) with the names they gave them.
+  browsers?: { id: string; name: string; kind: import('./browserLink').BrowserKind }[]
+  // The browser workspaces use when they haven't chosen one.
+  browserDefault?: string
+  // Sites agents may never open or act on. Absent: DEFAULT_BLOCKED_SITES.
+  browserBlocked?: string[]
   // OpenCode models shown in the picker (OpenCode can list hundreds).
   opencodeModels: string[]
   // O8: model ids each agent hides from the model picker (see shared/modelVisibility.ts).
@@ -2367,6 +2378,7 @@ export interface DroppedFolder {
 export type NotifyKind = 'finished' | 'stopped' | 'attention' | 'info'
 
 export type MainEvent =
+  | { type: 'browser-links'; links: import('./browserLink').BrowserLinkInfo[] }
   | { type: 'browser-open'; workspaceId: string; url: string }
   | { type: 'browser-state'; workspaceId: string; state: import('./browser').BrowserState }
   | { type: 'browser-shortcut'; workspaceId: string; action: 'address' | 'close' }
@@ -2444,7 +2456,7 @@ export type MainEvent =
 export type RepoPatch = Partial<Pick<Repo, 'name' | 'defaultBranch' | 'remote' | 'setupHintDismissed'>> & { icon?: RepoIcon | null; cloud?: Partial<Omit<RepoCloud, 'build'>> | null }
 
 // G2: `status: null` clears the status (the board's Undo, back to a workspace that had none).
-export type WorkspacePatch = Partial<Pick<Workspace, 'name' | 'pinned'>> & { status?: WorkspaceStatus | null; later?: { until?: string } | null }
+export type WorkspacePatch = Partial<Pick<Workspace, 'name' | 'pinned'>> & { status?: WorkspaceStatus | null; later?: { until?: string } | null; browser?: string | null }
 
 export type SessionPatch = Partial<
   Pick<Session, 'title' | 'agent' | 'model' | 'effort' | 'fastMode' | 'planMode' | 'autoAcceptEdits' | 'includeNote'>
@@ -2966,6 +2978,15 @@ export interface Api {
   adoptWorktree(repoId: string, path: string, options: AdoptWorktreeOptions): Promise<Workspace>
   listWorktrees(repoId: string): Promise<WorktreeInfo[]>
   updateWorkspace(id: string, patch: WorkspacePatch): Promise<void>
+  // Foreman for Chrome: the browsers Foreman knows (allowed or waiting to be allowed, connected or not).
+  browserLinks(): Promise<import('./browserLink').BrowserLinkInfo[]>
+  // Allow a waiting browser, or rename an allowed one.
+  allowBrowser(id: string, name: string): Promise<void>
+  // Forget a browser: it must be allowed again to connect.
+  forgetBrowser(id: string): Promise<void>
+  // The unpacked extension's folder, for Chrome's "Load unpacked"; reveal shows it in the file manager.
+  browserExtensionFolder(): Promise<string>
+  revealBrowserExtension(): Promise<void>
   // #1: without stopTabs, refuses while an agent runs. A failed checkpoint or archive script stops before anything is deleted.
   archiveWorkspace(id: string, deleteBranch: boolean, options?: ArchiveOptions): Promise<ArchiveOutcome>
   archivePreview(id: string): Promise<ArchivePreview>
@@ -3418,7 +3439,7 @@ export const API_METHODS = [
   'updateRepoSettings', 'listBranches', 'listRemotes', 'previewFilesToCopy', 'detectRepoIcon', 'openRepoSettingsFile',
   'envView', 'setEnvVars', 'revealEnvVar', 'setEnvFiles', 'importKeyFromShell', 'opencodeProviders', 'setProviderKey',
   'githubStatus', 'setGithubToken', 'gitlabHosts', 'testGitlabHost', 'saveGitlabToken', 'removeGitlabHost', 'useGlabToken', 'githubAccounts', 'detectRepoAccount', 'remoteUrl', 'whichBinary', 'fullDiskAccess', 'openFullDiskAccessSettings', 'resourceUsage', 'saveDiagnostics', 'cliStatus', 'installCli', 'forkSession', 'prepareHandOff', 'startHandOff',
-  'createWorkspace', 'startCompare', 'archiveCompareOthers', 'adoptWorktree', 'listWorktrees', 'updateWorkspace', 'archiveWorkspace', 'unarchiveWorkspace', 'forgetWorkspace', 'archivedWork', 'deleteArchived', 'keepArchived', 'activateWorkspace', 'exportInfo', 'searchChats', 'searchNotes', 'saveNote', 'sendNote', 'usageReport', 'dataInfo', 'backupNow', 'langfuseExportStatus', 'setLangfuseExport', 'sendEarlierToLangfuse', 'gitBackupStatus', 'configureGitBackup', 'createGitBackupGithubRepo', 'gitBackupNow', 'previewGitBackup', 'restoreGitBackup', 'deleteLegacyFiles', 'exportWorkspace', 'stageImport', 'importStaged', 'discardImport', 'getSetupLog', 'rerunSetup', 'retrySetup', 'stopSetup', 'getSetupStepLogs', 'startHeldMessage', 'resolveGithubLink',
+  'createWorkspace', 'startCompare', 'archiveCompareOthers', 'adoptWorktree', 'listWorktrees', 'updateWorkspace', 'browserLinks', 'allowBrowser', 'forgetBrowser', 'browserExtensionFolder', 'revealBrowserExtension', 'archiveWorkspace', 'unarchiveWorkspace', 'forgetWorkspace', 'archivedWork', 'deleteArchived', 'keepArchived', 'activateWorkspace', 'exportInfo', 'searchChats', 'searchNotes', 'saveNote', 'sendNote', 'usageReport', 'dataInfo', 'backupNow', 'langfuseExportStatus', 'setLangfuseExport', 'sendEarlierToLangfuse', 'gitBackupStatus', 'configureGitBackup', 'createGitBackupGithubRepo', 'gitBackupNow', 'previewGitBackup', 'restoreGitBackup', 'deleteLegacyFiles', 'exportWorkspace', 'stageImport', 'importStaged', 'discardImport', 'getSetupLog', 'rerunSetup', 'retrySetup', 'stopSetup', 'getSetupStepLogs', 'startHeldMessage', 'resolveGithubLink',
   'readFile', 'writeFile', 'searchFiles', 'listDir', 'readImage', 'previewUrl', 'readImageAt', 'alertFile',
   'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'dismissArchiveStopped', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',

@@ -1,5 +1,6 @@
 import { TransferBanner } from './HandOffDialogs'
 import { EmployeeRunBanner } from './employees/EmployeeRunBanner'
+import { BrowserMenu } from './BrowserMenu'
 import { Archive, ArrowRightLeft, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, Minimize2, MoreHorizontal, PanelBottom, PanelLeft, PanelRight, Pencil, Plus, RefreshCw, Rocket, RotateCcw, Upload, Users, X } from 'lucide-react'
 import { compareBlockFor } from '../../../shared/compare'
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -1094,6 +1095,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                   </Button>
                 )}
                 {surfaces.local && <HandToPmButton workspaceId={ws.id} />}
+                {surfaces.local && <BrowserMenu ws={ws} />}
                 {surfaces.local && clientKind === 'window' && <OpenMenu ws={ws} />}
               </>
             )}
