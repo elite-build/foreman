@@ -102,7 +102,9 @@ export async function request(overrides: Partial<TurnRequest> = {}): Promise<Tur
     turnId: 'turn-1',
     prompt: 'Hello',
     cwd: await makeRepo(),
-    env: {},
+    // A turn in the app always carries a PATH. Without one, a command an ACP agent's terminal runs (`node -e …`) is found on
+    // Windows, which falls back to this process's PATH, but not on macOS or Linux, which look only in /usr/bin and /bin.
+    env: Object.fromEntries(Object.entries(process.env).filter(([name, value]) => /^path$/i.test(name) && value !== undefined)) as Record<string, string>,
     model: '',
     fastMode: false,
     planMode: false,

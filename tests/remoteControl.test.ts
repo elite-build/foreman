@@ -1,3 +1,5 @@
+import os from 'node:os'
+import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DeviceNet } from '../src/main/deviceNet'
 import { Devices } from '../src/main/devices'
@@ -414,8 +416,8 @@ describe('routing the window while it shows another computer', () => {
     expect(await r.invoke('computers', [])).toBe('chip')
     await expect(r.invoke('openInEditor', ['w1'] as never)).rejects.toThrow('MacBook Pro')
     await expect(r.invoke('pickDirectory', [])).rejects.toThrow()
-    // A dropped file's contents travel, not its path on this computer.
-    expect(await r.invoke('attachFiles', ['w1', ['C:\\Users\\yatin\\shot.png']])).toEqual(['remote:attachData'])
+    // A dropped file's contents travel, not its path on this computer (written the way this computer writes paths).
+    expect(await r.invoke('attachFiles', ['w1', [path.join(os.homedir(), 'shot.png')]])).toEqual(['remote:attachData'])
     expect(remoteCalls.at(-1)).toEqual({ method: 'attachData', args: ['w1', 'shot.png', Buffer.from('hi').toString('base64')] })
     expect(local.quitNow).toHaveBeenCalled()
   })

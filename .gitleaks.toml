@@ -63,6 +63,13 @@ paths = ['''(?:^|/)src/main/agents/claude/fixtures/[^/]+\.jsonl$''']
 regexTarget = "secret"
 regexes = ['''^msg_[A-Za-z0-9]{20,}$''']
 
+[[rules.allowlists]]
+description = "The Foreman for Chrome extension's RSA public key, which fixes its extension ID; the private key is not in the repository"
+condition = "AND"
+paths = ['''(?:^|/)resources/chrome-extension/manifest\.json$''']
+regexTarget = "secret"
+regexes = ['''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvQMf//r1aeTmpE8z7Od1CVCLIs7IYw7iFJuxaf\+J\+9k3/vx4tx2766fSuBBD4X1DusgOD1T0EwdRalux3z9Ex7LQIND2Br91Bax8oFPXmb6ulg2MdSye9AoTKXxMDPuRcCvMJJNXVoQoW0TYJ5nUfL0uvvFUr4X5ASx\+LIfr1t2Mv2WZJJXHuLYd\+ZXad4yyNUf1bi9zQ71c3bVyaXqWOU4cR0rn8pD2b9rEL770LhKsRhpd4GBSPPJP/HWaO09Xr11ul/Yy8F2YQDUiRx8DD/MRXXFMaha\+/fI99GmEFVdClKM37VTsUANXvRUH6ahlplMbWsmyeicgtXWouVxL7QIDAQAB$''']
+
 [[rules]]
 id = "aws-access-token"
 [[rules.allowlists]]
