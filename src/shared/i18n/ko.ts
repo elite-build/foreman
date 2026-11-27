@@ -4042,6 +4042,7 @@ export const ko: Catalogue = {
   'workspaceView.toggleSidePanel': '측면 패널 전환({key})',
   'workspaceView.toggleTerminal': '터미널 패널 전환({key})',
   'workspaceView.createdFrom': '{base}에서 만듦',
+  'workspaceView.copyBranch': '브랜치 이름 복사',
   'workspaceView.noGit.title': 'Git 저장소가 아님',
   'workspaceView.noGit.body': '변경 사항과 커밋에는 Git이 필요합니다. 에이전트는 여전히 이곳의 파일로 작업하지만, Foreman은 무엇이 바뀌었는지 보여 주거나 턴을 되돌릴 수 없습니다.',
   'workspaceView.export.title': '이 워크스페이스를 .foreman 파일로 내보내기',
@@ -4057,7 +4058,6 @@ export const ko: Catalogue = {
   'workspaceView.compare.label': '비교…',
   // A narrow window or 200% zoom: the header's More menu (Compare, Export, Hand off, Open in), the button that opens the
   // side panel as a sheet, and the header button that shows the workspace list folded to its rail. {key} is a shortcut.
-  'workspaceView.more': '더 보기',
   'workspaceView.panelSheet.title': '변경 사항, 파일, 검사 표시({key})',
   'workspaceView.showList': '워크스페이스 목록 표시({key})',
 

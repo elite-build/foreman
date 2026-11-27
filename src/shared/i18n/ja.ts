@@ -4042,6 +4042,7 @@ export const ja: Catalogue = {
   'workspaceView.toggleSidePanel': 'サイドパネルの表示を切り替え（{key}）',
   'workspaceView.toggleTerminal': 'ターミナルパネルの表示を切り替え（{key}）',
   'workspaceView.createdFrom': '{base} から作成',
+  'workspaceView.copyBranch': 'ブランチ名をコピー',
   'workspaceView.noGit.title': 'Git リポジトリではありません',
   'workspaceView.noGit.body': '変更とコミットには Git が必要です。エージェントはここのファイルで作業を続けますが、Foreman は変更内容を表示したりターンを巻き戻したりできません。',
   'workspaceView.export.title': 'このワークスペースを .foreman ファイルとしてエクスポート',
@@ -4057,7 +4058,6 @@ export const ja: Catalogue = {
   'workspaceView.compare.label': '比較…',
   // A narrow window or 200% zoom: the header's More menu (Compare, Export, Hand off, Open in), the button that opens the
   // side panel as a sheet, and the header button that shows the workspace list folded to its rail. {key} is a shortcut.
-  'workspaceView.more': 'その他',
   'workspaceView.panelSheet.title': '変更・ファイル・チェックを表示（{key}）',
   'workspaceView.showList': 'ワークスペースの一覧を表示（{key}）',
 

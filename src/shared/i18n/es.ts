@@ -4088,6 +4088,7 @@ export const es: Catalogue = {
   'workspaceView.toggleSidePanel': 'Mostrar u ocultar el panel lateral ({key})',
   'workspaceView.toggleTerminal': 'Mostrar u ocultar el panel del terminal ({key})',
   'workspaceView.createdFrom': 'Creado desde {base}',
+  'workspaceView.copyBranch': 'Copiar nombre de la rama',
   'workspaceView.noGit.title': 'No es un repositorio git',
   'workspaceView.noGit.body': 'Los cambios y los commits necesitan git. Los agentes siguen trabajando en los archivos de aquí, pero Foreman no puede mostrar qué cambiaron ni deshacer un turno.',
   'workspaceView.export.title': 'Exportar este espacio de trabajo como archivo .foreman',
@@ -4103,7 +4104,6 @@ export const es: Catalogue = {
   'workspaceView.compare.label': 'Comparar…',
   // A narrow window or 200% zoom: the header's More menu (Compare, Export, Hand off, Open in), the button that opens the
   // side panel as a sheet, and the header button that shows the workspace list folded to its rail. {key} is a shortcut.
-  'workspaceView.more': 'Más',
   'workspaceView.panelSheet.title': 'Mostrar cambios, archivos y comprobaciones ({key})',
   'workspaceView.showList': 'Mostrar la lista de espacios de trabajo ({key})',
 

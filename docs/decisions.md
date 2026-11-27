@@ -455,3 +455,13 @@ A row says what its workspace is for, not what it is called: its first chat's ti
 **Decision.** The rail's + under the spaces opens Add to Foreman: a repository (Open a folder, Clone from GitHub, Start a new repository, recent folders, and which space it joins) beside an organization. In Inbox and Work, a folder-plus at the end of the New workspace row opens a short menu of the same three ways and recent folders for the space shown, ending in More ways…, which opens the dialog. A new repository added while an organization is shown joins it. The ▾ New list keeps its rows.
 
 **Why.** Since organizations, the rail's + only made an organization and adding a repository was the sixth row of the ▾ list. Of 11 mocks the person picked the dialog on the rail and the button beside New workspace together. This narrows the 2026-11-19 entry: New is still the split button; repositories get their own button beside it.
+
+## 2026-11-27: A workspace's actions live in the menu its name opens, not as buttons in the header
+
+**Decision.** Compare, Hand to Priya, Export, Hand off and the browser for agents are items in the menu the workspace's name opens, at every width, each with a line saying what it does. The header keeps the name, branch, state, Note, Open and the panel toggles. The Note bar folds into a Note button there, and Hand off shows only once a computer is paired.
+
+**Why.** Seven bordered controls of equal weight cut the name and branch to ellipses, though most are used once in a workspace's life, and Hand off showed on computers with nothing to hand to. Of 15 mocks the person picked this one.
+
+**Turned down.** A ⋯ menu (a drawer anything could go into), an icon toolbar (four icons to learn), a search field for actions, actions in the side panel or a status bar, pinning your own buttons.
+
+**Revisit when.** People reach for one of these actions often enough that a click into the menu costs them; pin that one rather than bringing back the row.
