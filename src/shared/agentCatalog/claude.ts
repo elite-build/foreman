@@ -46,11 +46,11 @@ const MODELS: CatalogModel[] = [
 export const CLAUDE_AGENT: CatalogAgent = {
   id: 'claude', name: 'Claude Code', monogram: 'Cc', level: 'full', binaries: ['claude'], versionArgs: ['--version'],
   auth: { login: { args: ['auth', 'login'], statusArgs: ['auth', 'status'] }, apiKey: { envVar: 'ANTHROPIC_API_KEY', alsoStrip: ['ANTHROPIC_AUTH_TOKEN'], keyUrl: 'https://console.anthropic.com/settings/keys', provider: 'Anthropic' }, cards: { login: 'agentSettings.claude.loginDesc', apiKey: 'agentSettings.claude.keyDesc' }, confirmed: true },
-  // tested: the version in the fixtures' headers (src/main/agents/claude/fixtures). The pinned Agent SDK (0.3.330) now bundles a
-  // newer CLI; the fixtures haven't been recorded again on it.
+  // tested: the versions in the fixtures' headers (src/main/agents/claude/fixtures). Most were recorded on 2.1.301; `steertool`
+  // on 2.1.330, the CLI the pinned Agent SDK (0.3.330) bundles. The rest haven't been recorded again on it.
   // minimum: not set, because nothing here says which release first had every message the adapter reads. update: `claude update`
   // (also `upgrade`), from `claude --help`.
-  versions: { tested: ['2.1.301'], update: { args: ['update'] } },
+  versions: { tested: ['2.1.301', '2.1.330'], update: { args: ['update'] } },
   capabilities: capsOf(CLAUDE_RECORD), docsUrl: 'https://code.claude.com/docs/en/installation', defaultEnabled: true,
   readiness: 'status', settings: { auth: 'claudeAuth', executablePath: 'claudeExecutablePath' }, models: { millionMarker: '[1m]', table: MODELS }, personaFiles: true,
   promptStyle: 'claude'

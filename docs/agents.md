@@ -464,7 +464,7 @@ One `###` section per agent that can hold a chat, named as the catalog names it,
 - **Works with a fallback:** taking a chat over from another agent (the earlier turns go in as attributed text).
 - **Not offered:** goals; commands it asks Foreman to run (it starts its own).
 - **Enforced by:** the agent (its permission modes; read-only is plan mode, which the chat can't leave). Every #170 ceiling is held.
-- **Tested:** Claude Code 2.1.301 (recorded, on `claude-haiku-5-5`). No minimum version is set: nothing says which release first had each message the adapter uses.
+- **Tested:** Claude Code 2.1.301 and, for `steertool`, 2.1.330 (recorded, on `claude-haiku-5-5`). No minimum version is set: nothing says which release first had each message the adapter uses.
 - **Fixtures:** `src/main/agents/claude/fixtures`: approval, compact, crash, fork, interrupt, limit (edited), plain, plan, question, resume, revert, scoped, steer, subagents.
 
 ### Codex
